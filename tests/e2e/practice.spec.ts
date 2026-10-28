@@ -13,16 +13,19 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("ユーザーネーム").fill(username);
   await dialog.getByLabel("4桁の数字パスワード").fill("0123");
-  await dialog.getByRole("button", { name: "今日から、はじめる" }).click();
+  await dialog.getByRole("button", { name: "登録する" }).click();
   await expect(dialog).toHaveCount(0);
   const { problems } = await (await page.request.get("/api/problems")).json();
   const problem = getProblem(problems[0].id)!;
   await page.locator(".problem-card").first().click();
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
-  await expect(page.locator(".answer-result")).toContainText("正解。");
+  await expect(page.locator(".answer-result")).toContainText("正解");
   await expect(page.locator(".result-heading")).toContainText("+1 pt");
-  await page.getByRole("button", { name: "今日のページに戻る" }).click();
+  await page
+    .getByRole("button", { name: "閉じる", exact: true })
+    .last()
+    .click();
   await expect(page.locator(".stat-item").first()).toContainText("1pt");
   await page.reload();
   await expect(page.locator(".stat-item").first()).toContainText("1pt");
@@ -32,9 +35,12 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
   await expect(page.locator(".answer-result")).toContainText(
     "今回の加点はありません",
   );
-  await page.getByRole("button", { name: "今日のページに戻る" }).click();
   await page
-    .getByRole("button", { name: "学習のあしあと", exact: true })
+    .getByRole("button", { name: "閉じる", exact: true })
+    .last()
+    .click();
+  await page
+    .getByRole("button", { name: "学習カレンダー", exact: true })
     .click();
   await expect(page.locator(".calendar-day.has-activity")).toHaveCount(1);
   await expect(page.locator(".selected-day-detail")).toContainText(
@@ -49,7 +55,7 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
   await page.getByRole("button", { name: "アカウント", exact: true }).click();
   await page.getByRole("button", { name: "ログアウト", exact: true }).click();
   await expect(page.locator(".account-guest")).toBeVisible();
-  await page.getByRole("button", { name: "登録・ログイン" }).click();
+  await page.getByRole("button", { name: "登録・ログイン", exact: true }).click();
   await dialog.getByRole("button", { name: "ログイン", exact: true }).click();
   await dialog.getByLabel("ユーザーネーム").fill(username);
   await dialog.getByLabel("4桁の数字パスワード").fill("0123");
@@ -78,7 +84,7 @@ test("mobile guest can navigate and practice without page overflow or points", a
     .getByRole("button", { name: "今日の微積", exact: true })
     .click();
   await page.locator(".problem-card").first().click();
-  await page.getByRole("button", { name: "ちょっとヒントを見る" }).click();
+  await page.getByRole("button", { name: "ヒントを見る" }).click();
   await expect(page.locator(".hint-box")).toBeVisible();
   await page.locator(".answer-choice").first().click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();

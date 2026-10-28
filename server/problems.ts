@@ -25,7 +25,7 @@ function basic(day: number): Content {
     case 0: {
       const answer = n * power(a, n - 1);
       return {
-        title: "一瞬の変化をつかむ",
+        title: "べき関数の微分係数",
         topic: "微分係数",
         estimatedMinutes: 3,
         prompt: `次の関数について、x = ${a} における微分係数を求めてください。`,
@@ -50,7 +50,7 @@ function basic(day: number): Content {
     case 1: {
       const ans = fraction(k, n);
       return {
-        title: "面積を、積み重ねる",
+        title: "べき関数の定積分",
         topic: "定積分",
         estimatedMinutes: 3,
         prompt: "次の定積分の値を求めてください。",
@@ -69,7 +69,7 @@ function basic(day: number): Content {
     }
     case 2:
       return {
-        title: "波の変化を読む",
+        title: "三角関数の微分",
         topic: "三角関数の微分",
         estimatedMinutes: 2,
         prompt: "次の関数の導関数を選んでください。",
@@ -84,7 +84,7 @@ function basic(day: number): Content {
       };
     case 3:
       return {
-        title: "対数と傾き",
+        title: "対数関数の微分係数",
         topic: "対数関数の微分",
         estimatedMinutes: 3,
         prompt: `次の関数について、x = ${n} における微分係数を求めてください。`,
@@ -102,7 +102,7 @@ function basic(day: number): Content {
       };
     default:
       return {
-        title: "変化から、もとの関数へ",
+        title: "べき関数の不定積分",
         topic: "不定積分",
         estimatedMinutes: 3,
         prompt: "次の不定積分を求めてください。C は積分定数です。",
@@ -133,7 +133,7 @@ function applied(day: number): Content {
     case 0: {
       const result = n * k * power(k + 1, n - 1);
       return {
-        title: "関数の、その内側へ",
+        title: "合成関数の微分係数",
         topic: "合成関数の微分",
         estimatedMinutes: 5,
         prompt: "次の関数について、x = 1 における微分係数を求めてください。",
@@ -157,7 +157,7 @@ function applied(day: number): Content {
     }
     case 1:
       return {
-        title: "積をほどく、部分積分",
+        title: "部分積分による定積分",
         topic: "部分積分",
         estimatedMinutes: 7,
         prompt: "次の定積分の値を求めてください。",
@@ -180,7 +180,7 @@ function applied(day: number): Content {
       };
     case 2:
       return {
-        title: "曲線に囲まれた余白",
+        title: "曲線と x 軸の間の面積",
         topic: "面積と定積分",
         estimatedMinutes: 5,
         prompt: "次の曲線と x 軸で囲まれる部分の面積を求めてください。",
@@ -198,7 +198,7 @@ function applied(day: number): Content {
       };
     case 3:
       return {
-        title: "いちばん低い場所",
+        title: "三次関数の最小値",
         topic: "関数の最小値",
         estimatedMinutes: 6,
         prompt: `区間 0 ≦ x ≦ ${2 * a} における、次の関数の最小値を求めてください。`,
@@ -216,7 +216,7 @@ function applied(day: number): Content {
       };
     default:
       return {
-        title: "積分と微分のつながり",
+        title: "微積分の基本定理",
         topic: "微積分の基本定理",
         estimatedMinutes: 5,
         prompt: "次の関数について、F′(1) を求めてください。",
@@ -241,7 +241,7 @@ function advanced(day: number): Content {
   switch (day % 5) {
     case 0:
       return {
-        title: "0の近くにある、2次の姿",
+        title: "指数関数の極限",
         topic: "極限",
         estimatedMinutes: 8,
         prompt: "次の極限値を求めてください。",
@@ -264,7 +264,7 @@ function advanced(day: number): Content {
       };
     case 1:
       return {
-        title: "無限の先まで積み重ねる",
+        title: "指数関数の広義積分",
         topic: "広義積分",
         estimatedMinutes: 9,
         prompt: "次の広義積分の値を求めてください。",
@@ -287,7 +287,7 @@ function advanced(day: number): Content {
       };
     case 2:
       return {
-        title: "対称性がほどく積分",
+        title: "偶関数と奇関数の積分",
         topic: "偶関数・奇関数",
         estimatedMinutes: 8,
         prompt: "次の定積分の値を求めてください。",
@@ -310,7 +310,7 @@ function advanced(day: number): Content {
       };
     case 3:
       return {
-        title: "変数をかえて、無限へ",
+        title: "置換による広義積分",
         topic: "置換積分・広義積分",
         estimatedMinutes: 9,
         prompt: "次の広義積分の値を求めてください。",
@@ -333,7 +333,7 @@ function advanced(day: number): Content {
       };
     default:
       return {
-        title: "発散する対数との付き合い方",
+        title: "対数を含む広義積分",
         topic: "部分積分・広義積分",
         estimatedMinutes: 10,
         prompt: "次の広義積分の値を求めてください。log は自然対数を表します。",

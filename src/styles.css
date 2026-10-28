@@ -115,19 +115,6 @@ svg {
   margin: 7px 0 0 2px;
   color: #92998e;
 }
-.sidebar-caption {
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: #959b92;
-  margin: 23px 0 46px 9px;
-}
-.nav-caption {
-  font-size: 8px;
-  letter-spacing: 0.15em;
-  color: #a0a69a;
-  padding: 0 15px;
-  margin-bottom: 16px;
-}
 .sidebar nav {
   display: flex;
   flex-direction: column;
@@ -170,29 +157,6 @@ svg {
   margin-top: auto;
   padding-top: 50px;
 }
-.sidebar-note {
-  padding: 25px 15px 30px;
-}
-.note-formula {
-  color: #919c88;
-  font:
-    italic 16px Georgia,
-    serif;
-  letter-spacing: 0.015em;
-}
-.sidebar-note p {
-  font: 400 12px/2.1 var(--serif);
-  letter-spacing: 0.08em;
-  margin: 15px 0;
-  color: #7b8675;
-}
-.little-line {
-  height: 1px;
-  width: 23px;
-  background: #b3bfaa;
-  display: block;
-  margin-top: 19px;
-}
 .sidebar-account {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -232,16 +196,6 @@ svg {
 .sidebar-account > svg {
   margin-left: auto;
   color: #929e8b;
-}
-.sidebar-footer {
-  font-size: 6.9px;
-  letter-spacing: 0.09em;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: #9ea594;
-  margin-top: 20px;
 }
 .online-dot {
   width: 5px;
@@ -337,11 +291,6 @@ svg {
   gap: 9px;
   line-height: 1.6;
 }
-.small-green-dash {
-  width: 16px;
-  height: 1px;
-  background: #8c9d7e;
-}
 .dashboard-heading {
   display: flex;
   align-items: center;
@@ -353,88 +302,10 @@ svg {
   letter-spacing: 0.055em;
   margin-top: 8px;
 }
-.edition {
-  text-align: right;
-}
-.edition > span {
-  font-size: 7px;
-  letter-spacing: 0.17em;
-  color: #a0a58f;
-}
-.edition > strong {
-  font:
-    400 24px/1.4 Georgia,
-    serif;
-  display: block;
-  color: #7e8b73;
-  margin-top: 6px;
-  letter-spacing: 0.02em;
-}
-.edition > strong > span {
-  color: #bdc6b3;
-  font-size: 17px;
-  margin: 0 4px;
-}
 .surface {
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 11px;
-}
-.hero {
-  min-height: 332px;
-  display: flex;
-  position: relative;
-  overflow: hidden;
-  background: #f1f4ed;
-  border-color: #e3e8dc;
-  border-radius: 10px;
-}
-.hero-copy {
-  position: relative;
-  width: 58%;
-  z-index: 1;
-  padding: 34px 0 29px 35px;
-}
-.hero-kicker {
-  font-size: 7.5px;
-  letter-spacing: 0.16em;
-  color: #7c8b6e;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.hero-kicker > span {
-  width: 4px;
-  height: 4px;
-  background: #869d71;
-  border-radius: 50%;
-}
-.hero h2 {
-  font: 500 36px/1.65 var(--serif);
-  letter-spacing: 0.06em;
-  margin-top: 15px;
-  color: #29432e;
-}
-.underlined {
-  position: relative;
-}
-.underlined:after {
-  content: "";
-  position: absolute;
-  height: 5px;
-  bottom: 2px;
-  border-bottom: 1px solid #9daf8b;
-  left: 0;
-  right: 0;
-  border-radius: 50%;
-  transform: rotate(-4deg);
-}
-.hero-copy > p {
-  font-size: 10px;
-  line-height: 2.2;
-  color: #7c8774;
-  margin-top: 13px;
-  letter-spacing: 0.035em;
 }
 .button {
   display: inline-flex;
@@ -464,70 +335,6 @@ svg {
   background: #f3f5ef;
   border: 1px solid #dde4d6;
   color: var(--green);
-}
-.hero .button {
-  margin-top: 22px;
-  min-height: 40px;
-  font-size: 10px;
-  padding: 11px 17px;
-  gap: 28px;
-}
-.hero-footnote {
-  font-size: 8px;
-  color: #8f9985;
-  display: block;
-  margin-top: 11px;
-}
-.hero-graph {
-  position: absolute;
-  width: 48%;
-  height: 100%;
-  right: 0;
-  top: 0;
-  mask-image: linear-gradient(to right, transparent, #000 15%);
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 15%);
-}
-.hero-graph > svg {
-  position: absolute;
-  width: 100%;
-  height: 90%;
-  right: 6px;
-  top: 20px;
-  overflow: visible;
-}
-.graph-caption {
-  position: absolute;
-  top: 25px;
-  right: 26px;
-  font-size: 6px;
-  letter-spacing: 0.2em;
-  color: #94a18a;
-}
-.graph-equation {
-  position: absolute;
-  bottom: 49px;
-  right: 35px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: center;
-}
-.graph-equation .katex {
-  font-size: 1.6em;
-  color: #4a6746;
-}
-.graph-equation > span:last-child {
-  font-size: 7px;
-  letter-spacing: 0.09em;
-  color: #849577;
-}
-.graph-index {
-  position: absolute;
-  bottom: 15px;
-  right: 23px;
-  font-size: 6px;
-  letter-spacing: 0.13em;
-  color: #a1ac97;
 }
 .stats-strip {
   display: grid;
@@ -582,14 +389,6 @@ svg {
   color: #7c8574;
   letter-spacing: 0;
 }
-.stat-note {
-  position: absolute;
-  right: 20px;
-  bottom: 3px;
-  font-size: 6px;
-  letter-spacing: 0.1em;
-  color: #b1b8a7;
-}
 .daily-section {
   margin-top: 35px;
   scroll-margin-top: 20px;
@@ -605,13 +404,6 @@ svg {
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.section-number {
-  font:
-    italic 13px Georgia,
-    serif;
-  color: #89977a;
-  align-self: center;
 }
 .section-title h2 {
   font: 500 19px var(--serif);
@@ -714,16 +506,6 @@ svg {
 }
 .advanced .points-badge {
   color: #78898a;
-}
-.problem-category {
-  font-size: 7px;
-  letter-spacing: 0.15em;
-  color: #b5bcac;
-  margin-top: 18px;
-}
-.problem-category > span {
-  color: #c6cbbf;
-  margin: 0 5px;
 }
 .problem-formula {
   height: 87px;
@@ -1547,21 +1329,6 @@ svg {
   .main-content {
     padding-top: 45px;
   }
-  .hero {
-    min-height: 365px;
-  }
-  .hero-copy {
-    padding-top: 37px;
-  }
-  .hero h2 {
-    font-size: 40px;
-  }
-  .hero-copy > p {
-    font-size: 11px;
-  }
-  .hero-graph > svg {
-    right: 18px;
-  }
   .problem-card {
     padding: 24px 26px 0;
   }
@@ -1627,45 +1394,12 @@ svg {
   .main-content {
     padding: 30px 28px 0;
   }
-  .hero h2 {
-    font-size: 31px;
-  }
-  .hero-copy {
-    padding-left: 27px;
-    width: 63%;
-  }
-  .hero-copy > p {
-    font-size: 9px;
-  }
-  .hero-kicker {
-    font-size: 6.5px;
-  }
-  .hero-graph {
-    width: 47%;
-    opacity: 0.85;
-  }
-  .hero {
-    min-height: 318px;
-  }
-  .graph-equation {
-    right: 26px;
-    bottom: 46px;
-  }
-  .graph-equation .katex {
-    font-size: 1.4em;
-  }
-  .graph-caption {
-    font-size: 5px;
-  }
   .section-description {
     display: none;
   }
   .stat-item {
     padding: 0 17px;
     gap: 9px;
-  }
-  .stat-note {
-    display: none;
   }
   .stat-label {
     font-size: 8px;
@@ -1685,9 +1419,6 @@ svg {
   }
   .problem-formula .katex {
     font-size: 1.4em;
-  }
-  .problem-category {
-    font-size: 6px;
   }
   .dashboard-bottom {
     gap: 15px;
@@ -1738,9 +1469,6 @@ svg {
   .brand small {
     font-size: 7px;
   }
-  .sidebar-caption {
-    font-size: 8px;
-  }
   .nav-link {
     font-size: 11px;
     padding: 14px 13px;
@@ -1759,30 +1487,6 @@ svg {
   }
   .dashboard-heading h1 {
     font-size: 23px;
-  }
-  .edition {
-    display: none;
-  }
-  .hero-copy {
-    width: 70%;
-    padding-left: 24px;
-  }
-  .hero h2 {
-    font-size: 28px;
-  }
-  .hero-graph {
-    right: -34px;
-    width: 48%;
-    opacity: 0.56;
-  }
-  .hero {
-    min-height: 309px;
-  }
-  .hero-kicker {
-    font-size: 6px;
-  }
-  .hero-footnote {
-    font-size: 7px;
   }
   .stat-item {
     padding: 0 12px;
@@ -1816,9 +1520,6 @@ svg {
   }
   .points-badge {
     font-size: 12px;
-  }
-  .problem-category {
-    font-size: 5px;
   }
   .problem-formula {
     height: 80px;
@@ -1929,9 +1630,6 @@ svg {
   .brand small {
     font-size: 8px;
   }
-  .sidebar-caption {
-    font-size: 10px;
-  }
   .nav-link {
     font-size: 12px;
     padding: 15px 16px;
@@ -1999,60 +1697,6 @@ svg {
     letter-spacing: 0.03em;
     margin-top: 9px;
   }
-  .hero {
-    min-height: 316px;
-  }
-  .hero-copy {
-    padding: 28px 0 26px 25px;
-    width: 72%;
-  }
-  .hero h2 {
-    font-size: 30px;
-    line-height: 1.65;
-    margin-top: 20px;
-  }
-  .hero-copy > p {
-    font-size: 9px;
-    margin-top: 13px;
-    line-height: 2.1;
-  }
-  .hero-kicker {
-    font-size: 5.8px;
-    gap: 5px;
-    letter-spacing: 0.14em;
-  }
-  .hero .button {
-    margin-top: 23px;
-    font-size: 9px;
-    min-height: 39px;
-  }
-  .hero-footnote {
-    font-size: 6.5px;
-  }
-  .hero-graph {
-    width: 61%;
-    right: -71px;
-    opacity: 0.3;
-    mask-image: linear-gradient(to right, transparent, #000 35%);
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 35%);
-  }
-  .hero-graph > svg {
-    height: 87%;
-    top: 36px;
-  }
-  .graph-caption {
-    display: none;
-  }
-  .graph-equation {
-    right: 85px;
-    bottom: 40px;
-  }
-  .graph-equation > span:last-child {
-    display: none;
-  }
-  .graph-index {
-    display: none;
-  }
   .stats-strip {
     padding: 18px 0;
     margin-top: 15px;
@@ -2104,11 +1748,6 @@ svg {
   }
   .problem-card-top {
     grid-column: 1/-1;
-  }
-  .problem-category {
-    font-size: 7px;
-    margin-top: 14px;
-    grid-column: 1;
   }
   .problem-formula {
     grid-row: 2/6;
@@ -2349,16 +1988,6 @@ svg {
   .topbar-date {
     display: none;
   }
-  .hero-copy {
-    padding-left: 20px;
-    width: 84%;
-  }
-  .hero h2 {
-    font-size: 29px;
-  }
-  .hero-graph {
-    right: -85px;
-  }
   .stat-icon {
     display: none;
   }
@@ -2456,42 +2085,9 @@ svg {
   .sidebar-bottom {
     padding-top: 25px;
   }
-  .sidebar-note {
-    padding-top: 10px;
-    padding-bottom: 18px;
-  }
   .button {
     min-height: 48px;
     font-size: 13px;
-  }
-  .hero-copy {
-    width: 100%;
-    padding: 28px 24px;
-  }
-  .hero h2 {
-    font-size: clamp(26px, 7.2vw, 32px);
-    line-height: 1.7;
-  }
-  .hero-copy > p {
-    font-size: 12px;
-    line-height: 2;
-  }
-  .hero-kicker {
-    font-size: 8px;
-    letter-spacing: 0.1em;
-  }
-  .hero .button {
-    min-height: 48px;
-    font-size: 12px;
-    padding: 0 20px;
-  }
-  .hero-footnote {
-    font-size: 10px;
-    line-height: 1.8;
-  }
-  .hero-graph {
-    opacity: 0.17;
-    pointer-events: none;
   }
   .stats-strip {
     align-items: stretch;
@@ -2543,10 +2139,6 @@ svg {
   }
   .points-badge > span {
     font-size: 11px;
-  }
-  .problem-category {
-    font-size: 9px;
-    margin-top: 17px;
   }
   .problem-formula {
     display: block;
@@ -2735,19 +2327,6 @@ svg {
     padding-left: 14px;
     padding-right: 14px;
   }
-  .hero-copy {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-  .hero h2 {
-    font-size: 25px;
-  }
-  .hero-kicker {
-    font-size: 7px;
-  }
-  .hero-copy > p {
-    font-size: 11px;
-  }
   .stat-label {
     font-size: 9px;
   }
@@ -2829,5 +2408,39 @@ svg {
     top: 8px;
     right: 8px;
     margin: 0;
+  }
+}
+
+.sidebar nav {
+  margin-top: 30px;
+}
+.dashboard-heading h1 {
+  font: 600 30px/1.5 var(--serif);
+  margin: 0;
+}
+.dashboard-date {
+  margin-top: 8px;
+  color: #77816f;
+  font-size: 12px;
+}
+.dashboard-heading {
+  margin-bottom: 24px;
+}
+.dashboard > .stats-strip {
+  margin-top: 0;
+}
+.auth-app-name {
+  font: 600 17px var(--serif);
+  color: var(--green);
+}
+@media (max-width: 700px) {
+  .dashboard-heading h1 {
+    font-size: 28px;
+  }
+  .dashboard-date {
+    font-size: 12px;
+  }
+  .sidebar nav {
+    margin-top: 28px;
   }
 }

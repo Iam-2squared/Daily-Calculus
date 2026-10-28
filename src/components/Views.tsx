@@ -29,24 +29,18 @@ import { MathText } from "./Math";
 import "../views.css";
 
 function PageHeading({
-  eyebrow,
   title,
   description,
-  children,
 }: {
-  eyebrow: string;
   title: string;
   description: string;
-  children?: ReactNode;
 }) {
   return (
     <header className="page-heading secondary-page-heading">
       <div>
-        <p className="eyebrow">{eyebrow}</p>
         <h1>{title}</h1>
         <p className="view-intro">{description}</p>
       </div>
-      {children}
     </header>
   );
 }
@@ -135,12 +129,9 @@ export function RankingView({
   return (
     <div className="secondary-view">
       <PageHeading
-        eyebrow="THE LEADERBOARD"
-        title="積み重ねた、その先に。"
-        description="日々の小さな正解が、あなたの確かな力になる。"
-      >
-        <span className="heading-symbol">∑</span>
-      </PageHeading>
+        title="ランキング"
+        description="総合・週間の上位25名と自分の順位を表示します。"
+      />
       <div className="ranking-layout">
         <section className="surface ranking-surface">
           <div className="ranking-toolbar">
@@ -158,12 +149,12 @@ export function RankingView({
                 週間ランキング
               </button>
             </div>
-            <span className="ranking-top-label">TOP 25</span>
+            <span className="ranking-top-label">上位25名</span>
           </div>
           <div className="ranking-caption">
             <span>
               {period === "all"
-                ? "これまでのすべての正解を、記録に。"
+                ? "累計ポイント"
                 : ranking
                   ? `${dateLabel(ranking.weekStart)}（月）からの獲得ポイント`
                   : "今週の獲得ポイント"}
@@ -184,8 +175,8 @@ export function RankingView({
           ) : ranking.entries.length === 0 ? (
             <EmptyState
               icon={Trophy}
-              title="最初の一歩から、はじめよう。"
-              description="正解してポイントを獲得すると、ここにランキングが表示されます。"
+              title="ランキングデータがありません"
+              description="アカウントを作成すると、ランキングに参加できます。"
             />
           ) : (
             <div className="ranking-table-wrap">
@@ -247,20 +238,14 @@ export function RankingView({
             <div className="ranking-not-yet">
               <Sprout size={17} />
               <p>
-                まだ順位はありません。最初の正解で、ランキングに参加しましょう。
+                まだ順位はありません。問題に正解するとポイントが加算されます。
               </p>
             </div>
           )}
         </section>
         <aside className="ranking-aside">
           <div className="points-guide surface">
-            <p className="eyebrow">EVERY ANSWER COUNTS</p>
-            <h2>正解を、ポイントに。</h2>
-            <p>
-              難しさに応じたポイントが、
-              <br />
-              あなたの挑戦の記録になります。
-            </p>
+            <h2>獲得ポイント</h2>
             <div className="point-rules">
               {(Object.keys(LEVELS) as Level[]).map((level) => (
                 <div key={level}>
@@ -277,20 +262,12 @@ export function RankingView({
               同じ問題への加点は初回正解時のみ。過去問の正解もランキングに反映されます。
             </p>
           </div>
-          <div className="ranking-note">
-            <span>∫</span>
-            <p>
-              誰かと比べる日も、
-              <br />
-              昨日の自分と比べる日も。
-            </p>
-          </div>
           {!user && (
             <button
               className="button button-primary ranking-join"
               onClick={onAccount}
             >
-              アカウントを作って参加 <ArrowRight size={16} />
+              登録・ログイン <ArrowRight size={16} />
             </button>
           )}
           <p className="ranking-explainer">
@@ -322,7 +299,7 @@ export function KnowledgeView() {
         </button>
         <article className="lesson-article surface">
           <div className="lesson-article-heading">
-            <span className="eyebrow">CALCULUS NOTE / {lesson.category}</span>
+            <span className="eyebrow">{lesson.category}</span>
             <h1>{lesson.title}</h1>
             <p>{lesson.description}</p>
           </div>
@@ -345,38 +322,15 @@ export function KnowledgeView() {
               </div>
             </section>
           ))}
-          <div className="lesson-end">
-            <CheckCircle2 size={19} />
-            <span>基本を確かめたら、問題で試してみましょう。</span>
-          </div>
         </article>
       </div>
     );
   return (
     <div className="secondary-view">
       <PageHeading
-        eyebrow="THE LITTLE TEXTBOOK"
-        title="わかる、が増えるノート。"
-        description="立ち止まったときは、基本に戻ってみる。微積を解くための小さな道しるべ。"
-      >
-        <span className="heading-symbol">ƒ</span>
-      </PageHeading>
-      <div className="knowledge-intro surface">
-        <div className="knowledge-intro-visual">
-          <span>Δy</span>
-          <div />
-          <span>Δx</span>
-        </div>
-        <div>
-          <p className="eyebrow">A LITTLE UNDERSTANDING, EVERY DAY</p>
-          <h2>公式の向こうにある、意味を知ろう。</h2>
-          <p>
-            「変化をとらえる」微分と、「小さな量を積み重ねる」積分。
-            <br />
-            考え方から公式の使い方まで、自分のペースで読み進められます。
-          </p>
-        </div>
-      </div>
+        title="微積の基本知識"
+        description="微分・積分の公式と解説を確認できます。"
+      />
       <div className="view-filter-row">
         <div className="filter-pills" aria-label="知識のカテゴリ">
           {categories.map((c) => (
@@ -395,7 +349,7 @@ export function KnowledgeView() {
               (l) => category === "すべて" || l.category === category,
             ).length
           }{" "}
-          のノート
+          項目
         </span>
       </div>
       <div className="lesson-grid">
@@ -417,7 +371,7 @@ export function KnowledgeView() {
               <h2>{l.title}</h2>
               <p>{l.description}</p>
               <div className="lesson-card-footer">
-                <span>ノートをひらく</span>
+                <span>解説を見る</span>
                 <ArrowRight size={17} />
               </div>
             </button>
@@ -454,12 +408,9 @@ export function CalendarView({ stats }: { stats: Stats }) {
   return (
     <div className="secondary-view">
       <PageHeading
-        eyebrow="A RECORD OF SMALL STEPS"
-        title="続けた日々が、力になる。"
-        description="ひとつの正解から、ひとつの習慣へ。あなたの積み重ねを振り返ろう。"
-      >
-        <span className="heading-symbol">∞</span>
-      </PageHeading>
+        title="学習カレンダー"
+        description="正解した日と獲得ポイントを確認できます。"
+      />
       <div className="calendar-summary">
         <div className="surface calendar-stat">
           <span>
@@ -469,7 +420,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
             {stats.streak}
             <small>日</small>
           </strong>
-          <p>今日も、小さな一歩を。</p>
+          <p>正解した日が対象</p>
         </div>
         <div className="surface calendar-stat">
           <span>
@@ -479,7 +430,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
             {monthSolved}
             <small>問</small>
           </strong>
-          <p>{monthActivity.length} 日間、思考を重ねました。</p>
+          <p>学習日数：{monthActivity.length} 日</p>
         </div>
         <div className="surface calendar-stat">
           <span>
@@ -489,14 +440,13 @@ export function CalendarView({ stats }: { stats: Stats }) {
             {monthPoints}
             <small>pt</small>
           </strong>
-          <p>努力は、少しずつ形になる。</p>
+          <p>初回正解分の合計</p>
         </div>
       </div>
       <div className="calendar-detail-layout">
         <section className="surface full-calendar">
           <div className="full-calendar-header">
             <div>
-              <p className="eyebrow">YOUR LEARNING CALENDAR</p>
               <h2>
                 {monthStart.getUTCFullYear()}
                 <span>年</span> {monthStart.getUTCMonth() + 1}
@@ -560,7 +510,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
             })}
           </div>
           <div className="calendar-legend">
-            <span>正解した日に、しるしを。</span>
+            <span>正解した日を記録</span>
             <div>
               <i />
               <span>未学習</span>
@@ -570,7 +520,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
           </div>
         </section>
         <aside className="surface selected-day-detail">
-          <p className="eyebrow">DAILY RECORD</p>
+          <p className="eyebrow">選択日の記録</p>
           <h2>{dateLabel(selected)}</h2>
           <span className="selected-date-weekday">
             {new Intl.DateTimeFormat("ja-JP", {
@@ -583,7 +533,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
               <span className="selected-day-emblem">
                 <CheckCircle2 size={39} strokeWidth={1.3} />
               </span>
-              <h3>今日の思考を、積み重ねた。</h3>
+              <h3>学習済み</h3>
               <p>この日は {currentActivity.count} 問に正解しました。</p>
               <div className="selected-day-points">
                 +{currentActivity.points}
@@ -595,15 +545,11 @@ export function CalendarView({ stats }: { stats: Stats }) {
               <span className="selected-day-emblem">
                 <Sprout size={39} strokeWidth={1.3} />
               </span>
-              <h3>
-                {selected === today
-                  ? "今日の一歩は、これから。"
-                  : "余白も、日々の一部。"}
-              </h3>
+              <h3>学習記録なし</h3>
               <p>
                 {selected === today
                   ? "問題に正解すると、この日に学習記録がつきます。"
-                  : "この日の学習記録はありません。自分のペースで、続けていきましょう。"}
+                  : "この日の正解記録はありません。"}
               </p>
             </>
           )}
@@ -660,16 +606,13 @@ export function ArchiveView({
   return (
     <div className="secondary-view">
       <PageHeading
-        eyebrow="THE PROBLEM ARCHIVE"
-        title="昨日の問いに、今日の自分で。"
-        description="解きそびれた一問も、もう一度考えたい一問も。過去30日分の問題に挑戦できます。"
-      >
-        <span className="heading-symbol">∂</span>
-      </PageHeading>
+        title="過去問"
+        description="過去30日分の問題を選んで解けます。"
+      />
       <div className="archive-topline surface">
         <div>
           <BookOpen size={22} strokeWidth={1.4} />
-          <p>過去問も、あなたの力に。</p>
+          <p>過去問のポイント</p>
         </div>
         <span>初めて正解した問題は、今日のポイントに加算されます。</span>
       </div>
@@ -715,13 +658,13 @@ export function ArchiveView({
           <EmptyState
             icon={Search}
             title="該当する問題はありません。"
-            description="難易度や学習状況を変えて、もう一度探してみましょう。"
+            description="難易度や学習状況の条件を変更してください。"
           />
         </div>
       ) : (
         <>
           <p className="archive-result-count">
-            {filtered.length} 問の問い <span>— 日付の新しい順</span>
+            {filtered.length} 問 <span>— 日付の新しい順</span>
           </p>
           <div className="archive-grid">
             {filtered.slice((page - 1) * 6, page * 6).map((p) => (
@@ -757,7 +700,7 @@ export function ArchiveView({
                     )}
                   </span>
                   <span>
-                    挑戦する <ArrowRight size={16} />
+                    解く <ArrowRight size={16} />
                   </span>
                 </div>
               </button>
@@ -804,31 +747,21 @@ export function AccountView({
   return (
     <div className="secondary-view">
       <PageHeading
-        eyebrow="YOUR OWN PAGE"
-        title="あなたの、微積の記録。"
-        description="積み重ねた思考を、ひとつのアカウントに。"
-      >
-        <span className="heading-symbol">𝑥</span>
-      </PageHeading>
+        title="アカウント"
+        description="ユーザー情報と学習記録を確認できます。"
+      />
       {!user ? (
         <section className="surface account-guest">
-          <div className="account-guest-art">
-            <span>∫</span>
-            <i>+ C</i>
-          </div>
-          <p className="eyebrow">A PLACE FOR YOUR PROGRESS</p>
-          <h2>小さな一歩を、残していこう。</h2>
+          <h2>ログインしていません</h2>
           <p>
-            ユーザーネームと4桁の数字パスワードだけ。
+            ユーザーネームと4桁の数字パスワードで登録・ログインできます。
             <br />
-            アカウントを作ると、学習記録・ポイント・順位を保存できます。
+            ログインすると、学習記録とポイントが保存されます。
           </p>
           <button className="button button-primary" onClick={onAccount}>
             登録・ログイン <ArrowRight size={17} />
           </button>
-          <small>
-            問題への挑戦と基本知識の閲覧は、登録なしでも楽しめます。
-          </small>
+          <small>問題と基本知識は、登録なしでも利用できます。</small>
         </section>
       ) : (
         <>
@@ -838,7 +771,7 @@ export function AccountView({
                 {user.username.slice(0, 1)}
               </span>
               <div>
-                <p className="eyebrow">CALCULUS LEARNER</p>
+                <p className="eyebrow">ユーザーネーム</p>
                 <h2>{user.username}</h2>
                 <p>
                   {new Intl.DateTimeFormat("ja-JP", {
@@ -847,7 +780,7 @@ export function AccountView({
                     month: "long",
                     day: "numeric",
                   }).format(new Date(user.createdAt))}{" "}
-                  からの積み重ね
+                  登録
                 </p>
               </div>
             </div>
@@ -866,7 +799,7 @@ export function AccountView({
             </div>
             <div className="surface">
               <CheckCircle2 size={21} strokeWidth={1.5} />
-              <span>これまでの正解</span>
+              <span>正解した問題</span>
               <strong>
                 {stats.solvedCount.toLocaleString()}
                 <small>問</small>
@@ -883,9 +816,7 @@ export function AccountView({
           </div>
           <section className="surface account-levels">
             <div>
-              <p className="eyebrow">YOUR CHALLENGES</p>
-              <h2>難易度ごとの足あと</h2>
-              <p>得意を伸ばして、新しい難しさにも触れてみよう。</p>
+              <h2>難易度別の正解数</h2>
             </div>
             <div className="account-level-list">
               {(Object.keys(LEVELS) as Level[]).map((level) => (

@@ -7,19 +7,19 @@ export const LEVELS: Record<
     name: "基礎",
     points: 1,
     english: "BASIC",
-    description: "まずは、基本をていねいに。",
+    description: "微分・積分の基本問題",
   },
   applied: {
     name: "応用",
     points: 3,
     english: "APPLIED",
-    description: "知識をつないで、もう一歩。",
+    description: "複数の公式を使う応用問題",
   },
   advanced: {
     name: "難関",
     points: 5,
     english: "ADVANCED",
-    description: "ひらめきで、壁を越えよう。",
+    description: "発展的な微分・積分の問題",
   },
 };
 export interface Problem {

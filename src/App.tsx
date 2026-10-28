@@ -33,17 +33,16 @@ import {
 type Page =
   "today" | "knowledge" | "calendar" | "ranking" | "archive" | "account";
 const NAV = [
-  { id: "today", label: "今日の微積", en: "DAILY PRACTICE", icon: BookOpen },
-  { id: "knowledge", label: "微積のノート", en: "THE NOTEBOOK", icon: Leaf },
+  { id: "today", label: "今日の微積", icon: BookOpen },
+  { id: "knowledge", label: "微積の基本知識", icon: Leaf },
   {
     id: "calendar",
-    label: "学習のあしあと",
-    en: "YOUR PROGRESS",
+    label: "学習カレンダー",
     icon: CalendarDays,
   },
-  { id: "ranking", label: "ランキング", en: "LEADERBOARD", icon: Trophy },
-  { id: "archive", label: "過去問に挑戦", en: "THE ARCHIVE", icon: History },
-  { id: "account", label: "アカウント", en: "YOUR ACCOUNT", icon: UserRound },
+  { id: "ranking", label: "ランキング", icon: Trophy },
+  { id: "archive", label: "過去問に挑戦", icon: History },
+  { id: "account", label: "アカウント", icon: UserRound },
 ] as const;
 const todayLabel = (date: string) =>
   new Intl.DateTimeFormat("ja-JP", {
@@ -159,7 +158,7 @@ export default function App() {
     setUser(next);
     setAuthOpen(false);
     await refreshStats();
-    setToast(`${next.username}さん、ようこそ。今日から、少しずつ。`);
+    setToast("ログインしました。");
   }
   async function logout() {
     try {
@@ -197,11 +196,8 @@ export default function App() {
           </span>
           <span>
             <strong>今日の微積</strong>
-            <small>DAILY CALCULUS</small>
           </span>
         </a>
-        <div className="sidebar-caption">日常に、ひとさじの数学を。</div>
-        <div className="nav-caption">YOUR DAILY ROUTINE</div>
         <nav>
           {NAV.map(({ id, label, icon: Icon }) => (
             <button
@@ -217,15 +213,6 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-note">
-            <span className="note-formula">∫ little things dt</span>
-            <p>
-              小さな積み重ねが、
-              <br />
-              大きな変化になる。
-            </p>
-            <span className="little-line" />
-          </div>
           <button
             className="sidebar-account"
             onClick={() => {
@@ -240,14 +227,11 @@ export default function App() {
               {user ? user.username.slice(0, 1) : <UserRound size={18} />}
             </span>
             <span>
-              <strong>{user?.username || "あなたの学びを記録"}</strong>
-              <small>{user ? "マイアカウント" : "無料ではじめる"}</small>
+              <strong>{user?.username || "アカウント"}</strong>
+              <small>{user ? "アカウント情報" : "登録・ログイン"}</small>
             </span>
             <ChevronRight size={16} />
           </button>
-          <div className="sidebar-footer">
-            <span className="online-dot" /> A LITTLE FURTHER, EVERY DAY.
-          </div>
         </div>
       </aside>
       {mobileOpen && (
@@ -294,7 +278,7 @@ export default function App() {
         <main className="main-content">
           {page === "today" && (
             <Dashboard
-              {...{ user, stats, problems, date, loading, error }}
+              {...{ stats, problems, date, loading, error }}
               onSolve={setActiveProblem}
               onNavigate={navigate}
               onRetry={loadDaily}
@@ -320,8 +304,7 @@ export default function App() {
             <span className="footer-brand">
               ∫ <span>今日の微積</span>
             </span>
-            <span>日々、思考を積み重ねる。</span>
-            <span>© {new Date().getFullYear()} DAILY CALCULUS</span>
+            <span>© {new Date().getFullYear()} 今日の微積</span>
           </footer>
         </main>
       </div>
@@ -389,106 +372,7 @@ export default function App() {
   );
 }
 
-function CalculusGraph() {
-  return (
-    <div className="hero-graph" aria-hidden="true">
-      <div className="graph-caption">THE BEAUTY OF CHANGE</div>
-      <svg viewBox="0 0 490 310">
-        <defs>
-          <pattern
-            id="grid"
-            width="30"
-            height="30"
-            patternUnits="userSpaceOnUse"
-          >
-            <path
-              d="M 30 0 L 0 0 0 30"
-              fill="none"
-              stroke="#dce4dd"
-              strokeWidth="0.6"
-            />
-          </pattern>
-          <linearGradient id="area" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#6c9b78" stopOpacity=".22" />
-            <stop offset="100%" stopColor="#6c9b78" stopOpacity=".05" />
-          </linearGradient>
-        </defs>
-        <rect width="490" height="310" fill="url(#grid)" />
-        <path
-          d="M64 250 H454 M100 280 V24"
-          fill="none"
-          stroke="#9eafa2"
-          strokeWidth="1"
-        />
-        <path d="M450 247l5 3-5 3M97 29l3-6 3 6" fill="none" stroke="#9eafa2" />
-        <path
-          d="M164 250 V235 C228 207 242 130 326 111 V250Z"
-          fill="url(#area)"
-        />
-        <path
-          d="M47 262 C105 255 128 254 164 235 C228 207 242 130 326 111 S398 91 447 34"
-          fill="none"
-          stroke="#315c42"
-          strokeWidth="2.8"
-          strokeLinecap="round"
-        />
-        <path
-          d="M160 275L331 86"
-          stroke="#95ac88"
-          strokeWidth="1.3"
-          strokeDasharray="5 5"
-        />
-        <path d="M246 250V166" stroke="#96a996" strokeDasharray="3 4" />
-        <circle
-          cx="246"
-          cy="166"
-          r="5"
-          fill="#fbfcf8"
-          stroke="#315c42"
-          strokeWidth="2"
-        />
-        <circle cx="164" cy="235" r="3.3" fill="#315c42" />
-        <circle cx="326" cy="111" r="3.3" fill="#315c42" />
-        <g
-          fill="#7c8c7d"
-          fontFamily="Georgia,serif"
-          fontSize="13"
-          fontStyle="italic"
-        >
-          <text x="459" y="268">
-            x
-          </text>
-          <text x="83" y="22">
-            y
-          </text>
-          <text x="83" y="268">
-            O
-          </text>
-          <text x="160" y="269">
-            a
-          </text>
-          <text x="324" y="269">
-            b
-          </text>
-          <text x="359" y="79" fill="#315c42" fontSize="18">
-            f(x)
-          </text>
-          <text x="260" y="154">
-            f′(x)
-          </text>
-        </g>
-      </svg>
-      <div className="graph-equation">
-        <MathText>{String.raw`\int_a^b f(x)\,dx`}</MathText>
-        <span>変化を知り、積み重ねる。</span>
-      </div>
-      <span className="graph-index">FIG. 01 — A CONTINUOUS JOURNEY</span>
-    </div>
-  );
-}
-
 function Dashboard({
-  user,
   stats,
   problems,
   date,
@@ -498,7 +382,6 @@ function Dashboard({
   onNavigate,
   onRetry,
 }: {
-  user: User | null;
   stats: Stats;
   problems: Problem[];
   date: string;
@@ -508,88 +391,30 @@ function Dashboard({
   onNavigate: (p: Page) => void;
   onRetry: () => void;
 }) {
-  const dailyRef = useRef<HTMLElement>(null);
   const dateObj = new Date(`${date}T12:00:00+09:00`);
-  const enDate = new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    timeZone: "Asia/Tokyo",
-  })
-    .format(dateObj)
-    .toUpperCase();
   const complete = problems.filter((p) =>
     stats.solvedIds.includes(p.id),
   ).length;
   return (
     <div className="dashboard">
-      <div className="dashboard-heading">
+      <header className="dashboard-heading">
         <div>
-          <div className="eyebrow">
-            <span className="small-green-dash" />
-            {enDate}
-          </div>
-          <h1>
-            {user
-              ? `${user.username}さん、今日も一歩。`
-              : "日々、思考を積み重ねる。"}
-          </h1>
+          <h1>今日の微積</h1>
+          <p className="dashboard-date">{todayLabel(date)}</p>
         </div>
-        <div className="edition">
-          <span>YOUR DAILY MATHEMATICS</span>
-          <strong>
-            {String(dateObj.getFullYear())}
-            <span> / </span>
-            {String(dateObj.getMonth() + 1).padStart(2, "0")}
-          </strong>
-        </div>
-      </div>
-      <section className="hero surface">
-        <div className="hero-copy">
-          <span className="hero-kicker">
-            <span /> A SMALL PRACTICE. A BIG DIFFERENCE.
-          </span>
-          <h2>
-            その一歩が、
-            <br />
-            未来の<span className="underlined">曲線</span>を描く。
-          </h2>
-          <p>
-            微分する。積分する。考える。
-            <br />
-            1日ひと問からはじまる、あなたと数学の新しい習慣。
-          </p>
-          <button
-            className="button button-primary"
-            onClick={() =>
-              dailyRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })
-            }
-          >
-            今日の問題を解く
-            <ArrowRight size={17} />
-          </button>
-          <span className="hero-footnote">
-            正解よりも、考えた時間があなたの力に。
-          </span>
-        </div>
-        <CalculusGraph />
-      </section>
+      </header>
       <div className="stats-strip surface">
         <div className="stat-item">
           <span className="stat-icon">
             <ChartNoAxesColumnIncreasing size={19} />
           </span>
           <div>
-            <span className="stat-label">積み重ねたポイント</span>
+            <span className="stat-label">総ポイント</span>
             <strong>
               {stats.totalPoints}
               <small>pt</small>
             </strong>
           </div>
-          <span className="stat-note">TOTAL POINTS</span>
         </div>
         <div className="stat-item">
           <span className="stat-icon flame">
@@ -602,51 +427,42 @@ function Dashboard({
               <small>日</small>
             </strong>
           </div>
-          <span className="stat-note">KEEP GOING</span>
         </div>
         <div className="stat-item">
           <span className="stat-icon">
             <CheckCircle2 size={19} />
           </span>
           <div>
-            <span className="stat-label">解いた問題</span>
+            <span className="stat-label">正解数</span>
             <strong>
               {stats.solvedCount}
               <small>問</small>
             </strong>
           </div>
-          <span className="stat-note">ONE BY ONE</span>
         </div>
       </div>
-      <section className="daily-section" ref={dailyRef}>
+      <section className="daily-section">
         <div className="section-heading">
           <div className="section-title">
-            <span className="section-number">01</span>
-            <h2>今日の微積</h2>
-            <span className="section-description">
-              今日のあなたに、ちょうどいい挑戦を。
-            </span>
+            <h2>今日の問題</h2>
           </div>
-          <span className="daily-update">
-            <span className="online-dot" />
-            毎日 0:00 更新 <span className="jst">JST</span>
-          </span>
+          <span className="daily-update">毎日 0:00 更新（日本時間）</span>
         </div>
         {error ? (
           <div className="surface error-state">
             <p>{error}</p>
             <button className="button button-secondary" onClick={onRetry}>
-              もう一度読み込む
+              再読み込み
             </button>
           </div>
         ) : loading ? (
           <div className="loading-state">
             <LoaderCircle className="spin" size={22} />
-            今日の問題を準備しています
+            読み込み中
           </div>
         ) : (
           <div className="problem-grid">
-            {problems.map((p, i) => {
+            {problems.map((p) => {
               const meta = LEVELS[p.level];
               const done = stats.solvedIds.includes(p.id);
               return (
@@ -665,10 +481,6 @@ function Dashboard({
                       <span> pt</span>
                     </span>
                   </div>
-                  <div className="problem-category">
-                    {String(i + 1).padStart(2, "0")} <span>/</span>{" "}
-                    {meta.english}
-                  </div>
                   <div className="problem-formula">
                     <MathText display>
                       {p.formula.split(String.raw`\quad`)[0]}
@@ -676,13 +488,12 @@ function Dashboard({
                   </div>
                   <div className="problem-topic">{p.topic}</div>
                   <h3>{p.title}</h3>
-                  <p>{meta.description}</p>
                   <div className="problem-card-bottom">
                     <span>
                       {done ? (
                         <>
                           <Check size={14} />
-                          クリア済み
+                          正解済み
                         </>
                       ) : (
                         <>
@@ -701,46 +512,38 @@ function Dashboard({
           </div>
         )}
         <div className="daily-caption">
-          <span>{todayLabel(date)}</span>
-          <span>
-            {complete > 0
-              ? `今日の達成 ${complete} / 3 問`
-              : "まずは1問。自分のペースで。"}
-          </span>
+          <span>今日の正解 {complete} / 3 問</span>
         </div>
       </section>
       <div className="dashboard-bottom">
         <section className="progress-preview surface">
           <div className="preview-heading">
-            <div>
-              <span className="eyebrow">LITTLE BY LITTLE</span>
-              <h2>学びのあしあと</h2>
-            </div>
+            <h2>学習カレンダー</h2>
             <button
               className="text-link"
               onClick={() => onNavigate("calendar")}
             >
-              カレンダーを見る
+              すべて見る
               <ArrowRight size={14} />
             </button>
           </div>
           <div className="activity-month">
             <strong>
               {dateObj.getMonth() + 1}
-              <span>月の積み重ね</span>
+              <span>月</span>
             </strong>
             <span>
               {
                 stats.activity.filter((a) =>
                   a.date.startsWith(date.slice(0, 7)),
                 ).length
-              }{" "}
-              <small>days</small>
+              }
+              <small> 日学習</small>
             </span>
           </div>
           <MiniCalendar stats={stats} date={date} />
           <div className="activity-legend">
-            <span>今日の1問が、明日の自分につながる。</span>
+            <span>正解した日に記録されます</span>
             <span>
               少<em />
               <em />
@@ -751,24 +554,14 @@ function Dashboard({
         </section>
         <section className="notebook-preview surface">
           <div className="preview-heading">
-            <div>
-              <span className="eyebrow">BACK TO BASICS</span>
-              <h2>微積のノート</h2>
-            </div>
+            <h2>微積の基本知識</h2>
             <span className="notebook-icon">
               <BookOpen size={20} strokeWidth={1.5} />
             </span>
           </div>
           <div className="notebook-body">
-            <span className="note-tag">
-              NOTE 01 <span>微分のきほん</span>
-            </span>
-            <h3>「変化の瞬間」を、とらえる。</h3>
-            <p>
-              微分は、ある瞬間の変化の速さ。
-              <br />
-              曲線にそっと引いた接線が、教えてくれます。
-            </p>
+            <h3>導関数の定義</h3>
+            <p>微分係数は、その点における接線の傾きです。</p>
             <div className="notebook-formula">
               <MathText>{String.raw`f'(x)=\lim_{h\to 0}\frac{f(x+h)-f(x)}{h}`}</MathText>
             </div>
@@ -777,7 +570,7 @@ function Dashboard({
             className="text-link notebook-link"
             onClick={() => onNavigate("knowledge")}
           >
-            基本から読み直す
+            基本知識を見る
             <ArrowRight size={15} />
           </button>
         </section>
@@ -787,8 +580,8 @@ function Dashboard({
           <Trophy size={20} strokeWidth={1.4} />
         </span>
         <div>
-          <strong>仲間の積み重ねを、刺激に。</strong>
-          <span>基礎 1pt・応用 3pt・難関 5pt。小さな挑戦をランキングに。</span>
+          <strong>ランキング</strong>
+          <span>基礎 1pt・応用 3pt・難関 5pt</span>
         </div>
         <button className="text-link" onClick={() => onNavigate("ranking")}>
           ランキングを見る
@@ -919,16 +712,12 @@ function AuthModal({
           <X size={20} />
         </button>
         <span className="auth-brand-symbol">∫</span>
-        <div className="eyebrow">YOUR OWN LITTLE ROUTINE</div>
+        <p className="auth-app-name">今日の微積</p>
         <h2 id="auth-title">
-          {mode === "register"
-            ? "学びを、あなたの記録に。"
-            : "おかえりなさい。"}
+          {mode === "register" ? "アカウント作成" : "ログイン"}
         </h2>
         <p className="auth-intro">
-          ひと問ずつの積み重ねを、ずっと。
-          <br />
-          カレンダーとランキングで、成長を楽しもう。
+          ユーザーネームと数字4桁のパスワードを入力してください。
         </p>
         <div className="auth-tabs">
           <button
@@ -993,7 +782,7 @@ function AuthModal({
               <LoaderCircle className="spin" size={18} />
             ) : (
               <>
-                {mode === "register" ? "今日から、はじめる" : "ログインする"}
+                {mode === "register" ? "登録する" : "ログインする"}
                 <ArrowRight size={17} />
               </>
             )}
@@ -1002,7 +791,7 @@ function AuthModal({
         <p className="auth-bottom-note">
           {mode === "register"
             ? "ユーザーネームとパスワードは大切に保管してください。"
-            : "また今日も、あなたのペースで。"}
+            : "登録済みのアカウントでログインします。"}
         </p>
       </div>
     </div>
@@ -1059,7 +848,7 @@ function ProblemModal({
       >
         <div className="problem-modal-header">
           <span className="eyebrow">
-            {p.date === jstToday() ? "TODAY’S CALCULUS" : "FROM THE ARCHIVE"}
+            {p.date === jstToday() ? "今日の問題" : "過去問"}
             <span>{p.date.replaceAll("-", ".")}</span>
           </span>
           <button className="icon-button" aria-label="閉じる" onClick={onClose}>
@@ -1114,7 +903,7 @@ function ProblemModal({
                 aria-expanded={hint}
               >
                 <CircleHelp size={15} />
-                {hint ? "ヒントを閉じる" : "ちょっとヒントを見る"}
+                {hint ? "ヒントを閉じる" : "ヒントを見る"}
                 <ChevronRight className={hint ? "rotated" : ""} size={14} />
               </button>
               {hint && <div className="hint-box">{p.hint}</div>}
@@ -1157,23 +946,18 @@ function ProblemModal({
                 ) : (
                   <BookOpen size={25} />
                 )}
-                <h3>
-                  {result.correct
-                    ? "正解。ひとつ、積み重なりました。"
-                    : "なるほど、を持ち帰ろう。"}
-                </h3>
+                <h3>{result.correct ? "正解" : "不正解"}</h3>
                 {result.pointsEarned > 0 && (
                   <span>+{result.pointsEarned} pt</span>
                 )}
               </div>
               {!result.correct && (
                 <p>
-                  正解は {String.fromCharCode(65 + result.correctIndex)}{" "}
-                  です。解き方を一緒に振り返りましょう。
+                  正解は {String.fromCharCode(65 + result.correctIndex)} です。
                 </p>
               )}
               <div className="explanation">
-                <span className="eyebrow">THE WAY TO THE ANSWER</span>
+                <span className="eyebrow">解説</span>
                 {result.explanation.map((line, i) => (
                   <div key={i}>
                     <p>{line}</p>
@@ -1202,7 +986,7 @@ function ProblemModal({
                   className="button button-primary answer-submit"
                   onClick={onAccount}
                 >
-                  アカウントを作って、学びを記録
+                  登録・ログイン
                   <ArrowRight size={17} />
                 </button>
               ) : (
@@ -1210,7 +994,7 @@ function ProblemModal({
                   className="button button-primary answer-submit"
                   onClick={onClose}
                 >
-                  今日のページに戻る
+                  閉じる
                   <ArrowRight size={17} />
                 </button>
               )}
