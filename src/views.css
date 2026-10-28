@@ -1897,3 +1897,315 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Comfortable reading and controls on the primary phone layout. */
+@media (max-width: 700px) {
+  .secondary-page-heading .view-intro {
+    font-size: 13px;
+    line-height: 1.95;
+  }
+  .text-button,
+  .filter-pills button,
+  .segmented-control button,
+  .archive-status-label select {
+    min-height: 44px;
+  }
+  .text-button {
+    font-size: 12px;
+  }
+  .filter-pills button {
+    font-size: 12px;
+    padding: 10px 15px;
+    flex-shrink: 0;
+  }
+  .filter-pills button small {
+    font-size: 10px;
+  }
+  .view-filter-row:not(.archive-filters) {
+    display: block;
+  }
+  .view-filter-row:not(.archive-filters) > .muted {
+    display: block;
+    font-size: 11px;
+    margin-top: 12px;
+  }
+  .view-filter-row .filter-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+    padding-bottom: 8px;
+    max-width: 100%;
+  }
+  .archive-filters > .filter-pills {
+    width: 100%;
+  }
+  .calendar-nav button,
+  .archive-pagination button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .calendar-nav .calendar-today {
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 11px;
+    padding: 8px;
+  }
+  .calendar-nav {
+    gap: 5px;
+  }
+  .full-calendar-header {
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .full-calendar-header > div:first-child {
+    flex: 1;
+    min-width: 105px;
+  }
+  .full-calendar-header .eyebrow {
+    font-size: 8px;
+    line-height: 1.6;
+  }
+  .full-calendar-header h2 {
+    white-space: nowrap;
+  }
+  .calendar-day {
+    min-height: 60px;
+    font-size: 15px;
+  }
+  .calendar-day > span:first-child {
+    font-size: 15px;
+  }
+  .calendar-day small {
+    font-size: 8px;
+  }
+  .calendar-stat > span {
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .calendar-stat > p {
+    font-size: 10px;
+    line-height: 1.8;
+  }
+  .calendar-weekday,
+  .calendar-legend,
+  .day-detail-note {
+    font-size: 10px;
+  }
+  .selected-day-detail > p,
+  .selected-date-weekday {
+    font-size: 12px;
+  }
+  .selected-day-detail > h3 {
+    font-size: 16px;
+  }
+  .selected-day-emblem {
+    width: 60px;
+    height: 60px;
+  }
+  .knowledge-intro h2 {
+    font-size: 17px;
+    line-height: 1.8;
+  }
+  .knowledge-intro p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 2;
+  }
+  .knowledge-intro-visual {
+    width: 42px;
+  }
+  .lesson-card-top {
+    font-size: 11px;
+  }
+  .lesson-card > p,
+  .lesson-section p,
+  .lesson-article-heading > p {
+    font-size: 13px;
+    line-height: 2.1;
+  }
+  .lesson-card-footer {
+    font-size: 12px;
+    min-height: 44px;
+    padding-top: 12px;
+  }
+  .lesson-card h2 {
+    font-size: 19px;
+  }
+  .lesson-section h2 {
+    font-size: 17px;
+  }
+  .lesson-end {
+    font-size: 12px;
+  }
+  .lesson-main-formula,
+  .lesson-step-formula {
+    max-width: 100%;
+  }
+  .ranking-toolbar {
+    flex-wrap: wrap;
+    padding: 18px;
+  }
+  .segmented-control {
+    flex: 1;
+  }
+  .segmented-control button {
+    flex: 1;
+    font-size: 12px;
+    padding: 10px;
+  }
+  .ranking-top-label {
+    display: none;
+  }
+  .ranking-caption {
+    font-size: 11px;
+    line-height: 1.8;
+  }
+  .ranking-table th {
+    font-size: 11px;
+  }
+  .ranking-table td:nth-child(2) {
+    font-size: 12px;
+  }
+  .view-empty p,
+  .points-guide > p:not(.eyebrow),
+  .points-guide .rule-footnote,
+  .ranking-explainer {
+    font-size: 12px !important;
+    line-height: 2 !important;
+  }
+  .point-rules > div {
+    font-size: 12px;
+  }
+  .ranking-join {
+    min-height: 48px;
+    font-size: 12px !important;
+  }
+  .archive-topline p {
+    font-size: 13px;
+  }
+  .archive-topline > span {
+    font-size: 12px;
+    padding-left: 0;
+    line-height: 2;
+  }
+  .archive-result-count,
+  .archive-result-count > span,
+  .archive-status-label {
+    font-size: 11px;
+  }
+  .archive-status-label select {
+    font-size: 13px;
+    min-width: 115px;
+  }
+  .archive-card-top > span:last-child,
+  .archive-level,
+  .archive-topic {
+    font-size: 11px;
+  }
+  .archive-level small {
+    font-size: 10px;
+  }
+  .archive-card h2 {
+    font-size: 19px;
+  }
+  .archive-card-bottom {
+    font-size: 12px;
+    min-height: 44px;
+  }
+  .account-guest > p:not(.eyebrow),
+  .account-guest > small,
+  .account-small-note,
+  .account-levels p:not(.eyebrow) {
+    font-size: 12px;
+    line-height: 2;
+  }
+  .account-profile-main p:not(.eyebrow) {
+    font-size: 11px;
+  }
+  .account-stats span {
+    font-size: 11px;
+    min-height: 30px;
+    line-height: 1.6;
+  }
+  .account-level-list > div {
+    font-size: 12px;
+  }
+}
+@media (max-width: 360px) {
+  .calendar-summary {
+    gap: 6px;
+  }
+  .calendar-stat {
+    padding: 16px 9px;
+  }
+  .calendar-stat > span {
+    font-size: 10px;
+    gap: 4px;
+  }
+  .calendar-stat > span svg {
+    display: none;
+  }
+  .calendar-stat > strong {
+    font-size: 29px;
+  }
+  .calendar-stat > p {
+    font-size: 9px;
+  }
+  .full-calendar {
+    padding: 20px 12px;
+  }
+  .full-calendar-grid {
+    gap: 3px;
+  }
+  .calendar-day {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+  .knowledge-intro {
+    padding: 22px 18px;
+    gap: 15px;
+  }
+  .knowledge-intro-visual {
+    display: none;
+  }
+  .lesson-article {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .segmented-control button {
+    font-size: 11px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+.lesson-card-formula > .math,
+.archive-card-formula > .math {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+@media (max-width: 360px) {
+  .progress-preview .preview-heading {
+    flex-wrap: wrap;
+  }
+  .progress-preview .preview-heading .text-link {
+    margin-left: auto;
+    min-height: 36px;
+  }
+  .ranking-banner {
+    align-items: flex-start;
+  }
+  .ranking-banner > div {
+    flex: 1;
+    min-width: 0;
+  }
+  .ranking-banner > .text-link {
+    flex-basis: calc(100% - 46px);
+    margin-top: -5px;
+  }
+}
+@media (max-width: 360px) {
+  .progress-preview .preview-heading .text-link {
+    min-height: 44px;
+  }
+}

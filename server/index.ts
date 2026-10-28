@@ -16,7 +16,7 @@ const server = app.listen(port, "0.0.0.0", () =>
 );
 function shutdown() {
   server.close(() => {
-    app.locals.db.close();
+    app.locals.db?.close();
     process.exit(0);
   });
 }

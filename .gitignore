@@ -7,3 +7,5 @@ data/
 playwright-report/
 test-results/
 *.log
+
+.vercel/

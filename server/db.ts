@@ -24,6 +24,12 @@ export function openDatabase(path: string) {
       expires_at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS auth_attempts (
+      key TEXT PRIMARY KEY,
+      count INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS auth_attempts_expiry ON auth_attempts(expires_at);
     CREATE TABLE IF NOT EXISTS solves (
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       problem_id TEXT NOT NULL,

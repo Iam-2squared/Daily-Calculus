@@ -68,11 +68,15 @@ test("mobile guest can navigate and practice without page overflow or points", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );
-  await page.getByRole("button", { name: "メニュー", exact: true }).click();
-  await page.getByRole("button", { name: "微積のノート", exact: true }).click();
+  await page
+    .locator(".mobile-bottom-nav")
+    .getByRole("button", { name: "ノート", exact: true })
+    .click();
   await expect(page.locator(".lesson-card")).toHaveCount(8);
-  await page.getByRole("button", { name: "メニュー", exact: true }).click();
-  await page.getByRole("button", { name: "今日の微積", exact: true }).click();
+  await page
+    .locator(".mobile-bottom-nav")
+    .getByRole("button", { name: "今日の微積", exact: true })
+    .click();
   await page.locator(".problem-card").first().click();
   await page.getByRole("button", { name: "ちょっとヒントを見る" }).click();
   await expect(page.locator(".hint-box")).toBeVisible();

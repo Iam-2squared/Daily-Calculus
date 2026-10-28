@@ -69,6 +69,37 @@ export default function App() {
   const [authOpen, setAuthOpen] = useState(false);
   const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(
+    () => matchMedia("(max-width: 700px)").matches,
+  );
+  useEffect(() => {
+    const query = matchMedia("(max-width: 700px)");
+    const update = () => {
+      setIsMobile(query.matches);
+      if (!query.matches) setMobileOpen(false);
+    };
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  useEffect(() => {
+    if (!mobileOpen || !isMobile) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const focusFrame = requestAnimationFrame(() =>
+      document.querySelector<HTMLElement>("#main-sidebar .nav-link")?.focus(),
+    );
+    const close = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMobileOpen(false);
+    };
+    document.addEventListener("keydown", close);
+    return () => {
+      cancelAnimationFrame(focusFrame);
+      document.body.style.overflow = previous;
+      document.removeEventListener("keydown", close);
+      if (previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [mobileOpen, isMobile]);
   const [toast, setToast] = useState("");
   const refreshStats = useCallback(async () => {
     setStats(await api.stats());
@@ -143,7 +174,18 @@ export default function App() {
   const nav = NAV.find((n) => n.id === page) || NAV[0];
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobileOpen ? "is-open" : ""}`}>
+      <aside
+        id="main-sidebar"
+        className={`sidebar ${mobileOpen ? "is-open" : ""}`}
+        inert={isMobile && !mobileOpen}
+      >
+        <button
+          className="icon-button mobile-menu sidebar-close"
+          aria-label="サイドメニューを閉じる"
+          onClick={() => setMobileOpen(false)}
+        >
+          <X size={18} />
+        </button>
         <a
           className="brand"
           href="#today"
@@ -186,7 +228,13 @@ export default function App() {
           </div>
           <button
             className="sidebar-account"
-            onClick={() => (user ? navigate("account") : setAuthOpen(true))}
+            onClick={() => {
+              if (user) navigate("account");
+              else {
+                setMobileOpen(false);
+                setAuthOpen(true);
+              }
+            }}
           >
             <span className="avatar">
               {user ? user.username.slice(0, 1) : <UserRound size={18} />}
@@ -209,13 +257,15 @@ export default function App() {
           onClick={() => setMobileOpen(false)}
         />
       )}
-      <div className="main-shell">
+      <div className="main-shell" inert={isMobile && mobileOpen}>
         <header className="topbar">
           <div className="topbar-left">
             <button
               className="icon-button mobile-menu"
               onClick={() => setMobileOpen(!mobileOpen)}
               aria-label="メニュー"
+              aria-expanded={mobileOpen}
+              aria-controls="main-sidebar"
             >
               <Menu size={22} />
             </button>
@@ -275,6 +325,41 @@ export default function App() {
           </footer>
         </main>
       </div>
+      <nav
+        className="mobile-bottom-nav"
+        aria-label="メインナビゲーション"
+        inert={mobileOpen}
+        aria-hidden={mobileOpen || undefined}
+      >
+        {(
+          [
+            { id: "today", label: "今日の微積", icon: BookOpen },
+            { id: "knowledge", label: "ノート", icon: Leaf },
+            { id: "calendar", label: "学習記録", icon: CalendarDays },
+            { id: "ranking", label: "ランキング", icon: Trophy },
+          ] as const
+        ).map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            className={`mobile-bottom-link ${page === id ? "active" : ""}`}
+            aria-current={page === id ? "page" : undefined}
+            onClick={() => navigate(id)}
+          >
+            <Icon size={20} strokeWidth={1.65} />
+            <span>{label}</span>
+          </button>
+        ))}
+        <button
+          className={`mobile-bottom-link ${mobileOpen || page === "archive" || page === "account" ? "active" : ""}`}
+          onClick={() => setMobileOpen(!mobileOpen)}
+          aria-expanded={mobileOpen}
+          aria-controls="main-sidebar"
+          aria-label="その他のメニュー"
+        >
+          <Menu size={20} strokeWidth={1.65} />
+          <span>その他</span>
+        </button>
+      </nav>
       {authOpen && (
         <AuthModal
           onClose={() => setAuthOpen(false)}
