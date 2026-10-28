@@ -12,10 +12,10 @@ import {
   publicUser,
   emptyStats,
   type Store,
-} from "./store.ts";
-import { getProblems, getProblem, publicProblem } from "./problems.ts";
-import { addDays, isDateKey, todayJST, weekStartJST } from "../shared/date.ts";
-import { LEVELS, type User } from "../shared/types.ts";
+} from "./store.js";
+import { getProblems, getProblem, publicProblem } from "./problems.js";
+import { addDays, isDateKey, todayJST, weekStartJST } from "../shared/date.js";
+import { LEVELS, type User } from "../shared/types.js";
 
 const scrypt = promisify(scryptCallback);
 const COOKIE = "daily_calculus_session";

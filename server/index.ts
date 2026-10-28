@@ -1,6 +1,6 @@
 import express from "express";
 import { resolve } from "node:path";
-import { createApp } from "./app.ts";
+import { createApp } from "./app.js";
 
 const app = createApp();
 if (process.env.NODE_ENV === "production") {

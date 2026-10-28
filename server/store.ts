@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
-import { openDatabase, type Database } from "./db.ts";
-import { addDays } from "../shared/date.ts";
+import { openDatabase, type Database } from "./db.js";
+import { addDays } from "../shared/date.js";
 import type {
   Stats,
   User,
   Level,
   Leaderboard,
   RankingEntry,
-} from "../shared/types.ts";
+} from "../shared/types.js";
 
 export interface UserRow {
   id: number;
