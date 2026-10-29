@@ -2444,3 +2444,74 @@ svg {
     margin-top: 28px;
   }
 }
+
+.daily-points-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  min-height: 36px;
+  padding: 3px 8px;
+  border-radius: 7px;
+  line-height: 1;
+}
+.practice-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 23px;
+  margin-top: 25px;
+}
+.practice-entry h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+.practice-entry p {
+  font-size: 11px;
+  line-height: 1.8;
+  color: #788171;
+  margin-top: 6px;
+}
+.practice-entry .button {
+  flex-shrink: 0;
+  gap: 14px;
+}
+.today-record-section {
+  margin-top: 32px;
+}
+.today-record-section .calendar-detail-layout {
+  margin-top: 0;
+}
+@media (max-width: 700px) {
+  .mobile-bottom-link.challenge-nav-link svg {
+    width: 23px;
+    height: 23px;
+  }
+  .mobile-bottom-link.challenge-nav-link {
+    font-weight: 600;
+    color: var(--green);
+  }
+  .mobile-bottom-link.challenge-nav-link.active {
+    background: var(--green);
+    color: #fff;
+  }
+  .practice-entry {
+    padding: 18px;
+    gap: 12px;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .practice-entry h2 {
+    font-size: 16px;
+  }
+  .practice-entry p {
+    font-size: 12px;
+  }
+  .practice-entry .button {
+    width: 100%;
+  }
+  .today-record-section {
+    margin-top: 28px;
+  }
+}

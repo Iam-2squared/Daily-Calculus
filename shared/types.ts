@@ -87,3 +87,15 @@ export interface Lesson {
   formula: string;
   content: { title: string; text: string; formula?: string }[];
 }
+
+export type ChallengeMode = "practice" | "time-attack";
+export interface TimeAttackRun {
+  token: string;
+  endsAt: number;
+  durationSeconds: number;
+}
+export interface ChallengeResponse {
+  problem: Problem;
+  serverNow: number;
+  run?: TimeAttackRun;
+}

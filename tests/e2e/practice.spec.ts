@@ -39,9 +39,7 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
     .getByRole("button", { name: "閉じる", exact: true })
     .last()
     .click();
-  await page
-    .getByRole("button", { name: "学習カレンダー", exact: true })
-    .click();
+  await page.getByRole("button", { name: "今日の学習", exact: true }).click();
   await expect(page.locator(".calendar-day.has-activity")).toHaveCount(1);
   await expect(page.locator(".selected-day-detail")).toContainText(
     "1 問に正解",
@@ -55,7 +53,9 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
   await page.getByRole("button", { name: "アカウント", exact: true }).click();
   await page.getByRole("button", { name: "ログアウト", exact: true }).click();
   await expect(page.locator(".account-guest")).toBeVisible();
-  await page.getByRole("button", { name: "登録・ログイン", exact: true }).click();
+  await page
+    .getByRole("button", { name: "登録・ログイン", exact: true })
+    .click();
   await dialog.getByRole("button", { name: "ログイン", exact: true }).click();
   await dialog.getByLabel("ユーザーネーム").fill(username);
   await dialog.getByLabel("4桁の数字パスワード").fill("0123");
@@ -81,7 +81,7 @@ test("mobile guest can navigate and practice without page overflow or points", a
   await expect(page.locator(".lesson-card")).toHaveCount(8);
   await page
     .locator(".mobile-bottom-nav")
-    .getByRole("button", { name: "今日の微積", exact: true })
+    .getByRole("button", { name: "今日の学習", exact: true })
     .click();
   await page.locator(".problem-card").first().click();
   await page.getByRole("button", { name: "ヒントを見る" }).click();

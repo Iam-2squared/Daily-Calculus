@@ -15,7 +15,13 @@ import {
 } from "./store.js";
 import { getProblems, getProblem, publicProblem } from "./problems.js";
 import { addDays, isDateKey, todayJST, weekStartJST } from "../shared/date.js";
-import { LEVELS, type User } from "../shared/types.js";
+import { LEVELS, type User, type ChallengeMode } from "../shared/types.js";
+import {
+  Challenges,
+  ChallengeError,
+  isChallengeId,
+  validChallengeInput,
+} from "./challenges.js";
 
 const scrypt = promisify(scryptCallback);
 const COOKIE = "daily_calculus_session";
@@ -24,6 +30,7 @@ interface Options {
   now?: () => Date;
   secureCookies?: boolean;
   store?: Store;
+  challengeKey?: string;
 }
 const tokenHash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -32,6 +39,11 @@ export function createApp(databasePath?: string, options: Options = {}) {
   const store = options.store || configuredStore(databasePath);
   const app = express();
   const now = options.now || (() => new Date());
+  const challenges = new Challenges(
+    options.challengeKey ||
+      process.env.CALCULUS_STORE_KEY ||
+      randomBytes(32).toString("hex"),
+  );
   const secureCookies =
     options.secureCookies ??
     (process.env.COOKIE_SECURE === "true" ||
@@ -129,20 +141,16 @@ export function createApp(databasePath?: string, options: Options = {}) {
         now().getTime(),
       ))
     )
-      return void res
-        .status(429)
-        .json({
-          error:
-            "操作の回数が多くなっています。15分ほど待ってからお試しください。",
-        });
+      return void res.status(429).json({
+        error:
+          "操作の回数が多くなっています。15分ほど待ってからお試しください。",
+      });
     const input = credentials(req);
     if (!input)
-      return void res
-        .status(400)
-        .json({
-          error:
-            "ユーザーネームは2〜20文字の文字・数字・「_ . -」、パスワードは数字4桁で入力してください。",
-        });
+      return void res.status(400).json({
+        error:
+          "ユーザーネームは2〜20文字の文字・数字・「_ . -」、パスワードは数字4桁で入力してください。",
+      });
     if (await store.userByKey(input.key))
       return void res
         .status(409)
@@ -181,19 +189,15 @@ export function createApp(databasePath?: string, options: Options = {}) {
         )))
     ) {
       res.set("Retry-After", "900");
-      return void res
-        .status(429)
-        .json({
-          error:
-            "ログインの試行回数を超えました。15分ほど待ってからお試しください。",
-        });
+      return void res.status(429).json({
+        error:
+          "ログインの試行回数を超えました。15分ほど待ってからお試しください。",
+      });
     }
     if (!input)
-      return void res
-        .status(400)
-        .json({
-          error: "ユーザーネームと数字4桁のパスワードを入力してください。",
-        });
+      return void res.status(400).json({
+        error: "ユーザーネームと数字4桁のパスワードを入力してください。",
+      });
     const row = await store.userByKey(input.key);
     const hash = (await scrypt(
       input.password,
@@ -251,8 +255,60 @@ export function createApp(databasePath?: string, options: Options = {}) {
         .map(publicProblem),
     });
   });
+  async function issueChallenge(
+    req: express.Request,
+    res: express.Response,
+    start: boolean,
+  ) {
+    const { level, mode, runToken } = req.body || {};
+    if (!validChallengeInput(level, mode))
+      return void res
+        .status(400)
+        .json({ error: "難易度と挑戦モードを選んでください。" });
+    const time = now();
+    // Eighty new questions per minute allows sustained study without a daily cap.
+    // Minute buckets keep compatibility with the existing persisted rate limiter.
+    if (
+      !(await store.consumeLimit(
+        `challenge:${clientIp(req)}:${Math.floor(time.getTime() / 60_000)}`,
+        80,
+        time.getTime(),
+      ))
+    ) {
+      res.set("Retry-After", "60");
+      return void res
+        .status(429)
+        .json({
+          error: "問題の取得が続いています。少し待ってからお試しください。",
+        });
+    }
+    res.json(
+      challenges.issue(
+        level,
+        mode as ChallengeMode,
+        res.locals.user?.id || 0,
+        time,
+        runToken,
+        start,
+      ),
+    );
+  }
+  app.post("/api/challenges/start", (req, res) =>
+    issueChallenge(req, res, true),
+  );
+  app.post("/api/challenges/next", (req, res) =>
+    issueChallenge(req, res, false),
+  );
   app.post("/api/problems/:id/answer", async (req, res) => {
-    const problem = getProblem(String(req.params.id));
+    const id = String(req.params.id);
+    const problem = isChallengeId(id)
+      ? challenges.resolve(
+          id,
+          res.locals.user?.id || 0,
+          now(),
+          req.body?.runToken,
+        )
+      : getProblem(id);
     if (!problem || !allowedDate(problem.date))
       return void res
         .status(404)
@@ -311,6 +367,8 @@ export function createApp(databasePath?: string, options: Options = {}) {
       _next: express.NextFunction,
     ) => {
       res.set("Cache-Control", "no-store");
+      if (error instanceof ChallengeError)
+        return void res.status(error.status).json({ error: error.message });
       if (
         error instanceof URIError ||
         (error instanceof SyntaxError && "body" in error)
@@ -338,11 +396,9 @@ export function createApp(databasePath?: string, options: Options = {}) {
         "API error:",
         error instanceof Error ? error.message : "Unknown error",
       );
-      res
-        .status(500)
-        .json({
-          error: "処理に失敗しました。時間をおいてもう一度お試しください。",
-        });
+      res.status(500).json({
+        error: "処理に失敗しました。時間をおいてもう一度お試しください。",
+      });
     },
   );
   return app;

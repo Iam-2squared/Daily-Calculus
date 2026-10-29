@@ -26,6 +26,7 @@ import { LEVELS } from "../../shared/types";
 import { api } from "../api";
 import { lessons } from "../lessons";
 import { MathText } from "./Math";
+import { POINT_COLORS, pointColor, pointRange } from "../activityColors";
 import "../views.css";
 
 function PageHeading({
@@ -381,7 +382,13 @@ export function KnowledgeView() {
   );
 }
 
-export function CalendarView({ stats }: { stats: Stats }) {
+export function CalendarView({
+  stats,
+  embedded = false,
+}: {
+  stats: Stats;
+  embedded?: boolean;
+}) {
   const today = todayKey();
   const [month, setMonth] = useState(() => today.slice(0, 7));
   const [selected, setSelected] = useState(today);
@@ -390,8 +397,16 @@ export function CalendarView({ stats }: { stats: Stats }) {
     Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0),
   ).getUTCDate();
   const offset = (monthStart.getUTCDay() + 6) % 7;
-  const monthActivity = stats.activity.filter((a) => a.date.startsWith(month));
+  const monthActivity = stats.activity.filter(
+    (a) => a.date.startsWith(month) && a.date <= today,
+  );
   const currentActivity = stats.activity.find((a) => a.date === selected);
+  const currentColor = pointColor(currentActivity?.points ?? 0);
+  const compactPoints = (points: number) =>
+    new Intl.NumberFormat("en", {
+      notation: "compact",
+      maximumFractionDigits: 0,
+    }).format(points);
   const monthSolved = monthActivity.reduce((sum, a) => sum + a.count, 0);
   const monthPoints = monthActivity.reduce((sum, a) => sum + a.points, 0);
   const shiftMonth = (delta: number) => {
@@ -406,43 +421,50 @@ export function CalendarView({ stats }: { stats: Stats }) {
     setSelected(d.toISOString().slice(0, 10));
   };
   return (
-    <div className="secondary-view">
-      <PageHeading
-        title="学習カレンダー"
-        description="正解した日と獲得ポイントを確認できます。"
-      />
-      <div className="calendar-summary">
-        <div className="surface calendar-stat">
-          <span>
-            <Flame size={18} /> 連続学習
-          </span>
-          <strong>
-            {stats.streak}
-            <small>日</small>
-          </strong>
-          <p>正解した日が対象</p>
-        </div>
-        <div className="surface calendar-stat">
-          <span>
-            <CheckCircle2 size={18} /> 今月の正解
-          </span>
-          <strong>
-            {monthSolved}
-            <small>問</small>
-          </strong>
-          <p>学習日数：{monthActivity.length} 日</p>
-        </div>
-        <div className="surface calendar-stat">
-          <span>
-            <Sprout size={18} /> 今月の獲得ポイント
-          </span>
-          <strong>
-            {monthPoints}
-            <small>pt</small>
-          </strong>
-          <p>初回正解分の合計</p>
-        </div>
-      </div>
+    <div
+      id="learning-calendar"
+      className={`secondary-view point-calendar ${embedded ? "embedded-calendar" : ""}`}
+    >
+      {!embedded && (
+        <>
+          <PageHeading
+            title="学習カレンダー"
+            description="日ごとの獲得ポイントに応じて、カレンダーが11色に変わります。"
+          />
+          <div className="calendar-summary">
+            <div className="surface calendar-stat">
+              <span>
+                <Flame size={18} /> 連続学習
+              </span>
+              <strong>
+                {stats.streak}
+                <small>日</small>
+              </strong>
+              <p>正解した日が対象</p>
+            </div>
+            <div className="surface calendar-stat">
+              <span>
+                <CheckCircle2 size={18} /> 今月の正解
+              </span>
+              <strong>
+                {monthSolved}
+                <small>問</small>
+              </strong>
+              <p>学習日数：{monthActivity.length} 日</p>
+            </div>
+            <div className="surface calendar-stat">
+              <span>
+                <Sprout size={18} /> 今月の獲得ポイント
+              </span>
+              <strong>
+                {monthPoints}
+                <small>pt</small>
+              </strong>
+              <p>初回正解分の合計</p>
+            </div>
+          </div>
+        </>
+      )}
       <div className="calendar-detail-layout">
         <section className="surface full-calendar">
           <div className="full-calendar-header">
@@ -486,20 +508,42 @@ export function CalendarView({ stats }: { stats: Stats }) {
             ))}
             {Array.from({ length: daysInMonth }, (_, i) => {
               const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-              const activity = stats.activity.find((a) => a.date === date);
+              const activity =
+                date <= today
+                  ? stats.activity.find((a) => a.date === date)
+                  : undefined;
+              const tier = pointColor(activity?.points ?? 0);
               return (
                 <button
                   key={date}
                   onClick={() => setSelected(date)}
                   disabled={date > today}
-                  className={`calendar-day ${date === selected ? "selected" : ""} ${date === today ? "today" : ""} ${activity ? "has-activity" : ""} ${activity && activity.count >= 3 ? "activity-deep" : ""}`}
-                  aria-label={`${dateLabel(date)} ${activity ? `${activity.count}問正解` : "学習記録なし"}`}
+                  className={`calendar-day ${date === selected ? "selected" : ""} ${date === today ? "today" : ""} ${tier ? "has-activity has-points" : ""}`}
+                  style={
+                    tier
+                      ? {
+                          backgroundColor: tier.color,
+                          color: tier.foreground,
+                          borderColor: tier.color,
+                        }
+                      : undefined
+                  }
+                  aria-label={`${dateLabel(date)} ${activity ? `${activity.count}問正解、${activity.points}ポイント${tier ? `、${tier.name}` : ""}` : "学習記録なし、0ポイント"}`}
                   aria-pressed={date === selected}
+                  aria-current={date === today ? "date" : undefined}
+                  title={
+                    activity
+                      ? `${activity.points}pt・${activity.count}問正解`
+                      : "学習記録なし"
+                  }
                 >
                   <span>{i + 1}</span>
-                  {activity ? (
-                    <span className="day-check">
-                      <Check size={13} />
+                  {tier && activity ? (
+                    <span className="calendar-day-points">
+                      {activity.points >= 1000
+                        ? compactPoints(activity.points)
+                        : activity.points}
+                      {activity.points < 1000 && <span>pt</span>}
                     </span>
                   ) : (
                     <span className="day-placeholder" />
@@ -509,13 +553,29 @@ export function CalendarView({ stats }: { stats: Stats }) {
               );
             })}
           </div>
-          <div className="calendar-legend">
-            <span>正解した日を記録</span>
-            <div>
-              <i />
-              <span>未学習</span>
-              <i className="legend-light" />
-              <span>学習済み</span>
+          <div
+            className="point-calendar-legend"
+            aria-label="1日の獲得ポイントと色"
+          >
+            <p>1日の獲得ポイント</p>
+            <div className="point-calendar-colors">
+              <span className="point-legend-chip">
+                <i className="point-swatch-empty" />
+                <span>0pt</span>
+              </span>
+              {POINT_COLORS.map((tier, index) => (
+                <span
+                  className="point-legend-chip"
+                  key={tier.min}
+                  title={`${tier.name}：${pointRange(index)}`}
+                >
+                  <i
+                    style={{ backgroundColor: tier.color }}
+                    aria-hidden="true"
+                  />
+                  <span>{pointRange(index)}</span>
+                </span>
+              ))}
             </div>
           </div>
         </section>
@@ -530,15 +590,40 @@ export function CalendarView({ stats }: { stats: Stats }) {
           </span>
           {currentActivity ? (
             <>
-              <span className="selected-day-emblem">
+              <span
+                className="selected-day-emblem"
+                style={
+                  currentColor
+                    ? {
+                        backgroundColor: currentColor.color,
+                        color: currentColor.foreground,
+                      }
+                    : undefined
+                }
+              >
                 <CheckCircle2 size={39} strokeWidth={1.3} />
               </span>
               <h3>学習済み</h3>
               <p>この日は {currentActivity.count} 問に正解しました。</p>
-              <div className="selected-day-points">
+              <div
+                className="selected-day-points point-calendar-badge"
+                style={
+                  currentColor
+                    ? {
+                        backgroundColor: currentColor.color,
+                        color: currentColor.foreground,
+                      }
+                    : undefined
+                }
+              >
                 +{currentActivity.points}
                 <small>pt</small>
               </div>
+              {currentColor && (
+                <span className="selected-day-color">
+                  この日の色：{currentColor.name}
+                </span>
+              )}
             </>
           ) : (
             <>
@@ -554,7 +639,7 @@ export function CalendarView({ stats }: { stats: Stats }) {
             </>
           )}
           <div className="day-detail-note">
-            カレンダーは、正解した日を記録します。
+            色は、その日に獲得したポイントで決まります。
             <br />
             日付の切り替わりは日本時間 0:00 です。
           </div>

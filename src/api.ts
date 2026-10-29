@@ -1,10 +1,22 @@
 import type {
   AnswerResult,
+  ChallengeMode,
+  ChallengeResponse,
+  Level,
   Leaderboard,
   Problem,
   Stats,
   User,
 } from "../shared/types";
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 export async function request<T>(
   url: string,
   options?: RequestInit,
@@ -16,8 +28,9 @@ export async function request<T>(
   });
   const data = await response.json();
   if (!response.ok)
-    throw new Error(
+    throw new ApiError(
       data.error || "通信に失敗しました。時間をおいてお試しください。",
+      response.status,
     );
   return data as T;
 }
@@ -38,10 +51,20 @@ export const api = {
     request<{ problems: Problem[] }>(
       `/api/archive${level ? `?level=${level}` : ""}`,
     ),
-  answer: (id: string, choiceIndex: number) =>
+  startChallenge: (level: Level, mode: ChallengeMode) =>
+    request<ChallengeResponse>("/api/challenges/start", {
+      method: "POST",
+      body: JSON.stringify({ level, mode }),
+    }),
+  nextChallenge: (level: Level, mode: ChallengeMode, runToken?: string) =>
+    request<ChallengeResponse>("/api/challenges/next", {
+      method: "POST",
+      body: JSON.stringify({ level, mode, runToken }),
+    }),
+  answer: (id: string, choiceIndex: number, runToken?: string) =>
     request<AnswerResult>(`/api/problems/${encodeURIComponent(id)}/answer`, {
       method: "POST",
-      body: JSON.stringify({ choiceIndex }),
+      body: JSON.stringify({ choiceIndex, runToken }),
     }),
   stats: () => request<Stats>("/api/stats"),
   rankings: (period: "all" | "week") =>

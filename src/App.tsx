@@ -14,6 +14,7 @@ import {
   Leaf,
   LoaderCircle,
   Menu,
+  Target,
   Trophy,
   UserRound,
   X,
@@ -22,6 +23,8 @@ import type { AnswerResult, Problem, Stats, User } from "../shared/types";
 import { LEVELS } from "../shared/types";
 import { api, EMPTY_STATS } from "./api";
 import { MathText } from "./components/Math";
+import { ChallengeView } from "./components/ChallengeView";
+import { pointColor } from "./activityColors";
 import {
   AccountView,
   ArchiveView,
@@ -31,14 +34,14 @@ import {
 } from "./components/Views";
 
 type Page =
-  "today" | "knowledge" | "calendar" | "ranking" | "archive" | "account";
+  "today" | "knowledge" | "challenge" | "ranking" | "archive" | "account";
 const NAV = [
-  { id: "today", label: "今日の微積", icon: BookOpen },
+  { id: "today", label: "今日の学習", icon: BookOpen },
   { id: "knowledge", label: "微積の基本知識", icon: Leaf },
   {
-    id: "calendar",
-    label: "学習カレンダー",
-    icon: CalendarDays,
+    id: "challenge",
+    label: "挑戦",
+    icon: Target,
   },
   { id: "ranking", label: "ランキング", icon: Trophy },
   { id: "archive", label: "過去問に挑戦", icon: History },
@@ -56,8 +59,10 @@ const jstToday = () =>
   new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
 
 export default function App() {
-  const [page, setPage] = useState<Page>(
-    (location.hash.slice(1) as Page) || "today",
+  const [page, setPage] = useState<Page>(() =>
+    NAV.some((n) => n.id === location.hash.slice(1))
+      ? (location.hash.slice(1) as Page)
+      : "today",
   );
   const [user, setUser] = useState<User | null>(null);
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
@@ -119,7 +124,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [refreshStats]);
+  }, []);
   useEffect(() => {
     api
       .session()
@@ -285,7 +290,13 @@ export default function App() {
             />
           )}
           {page === "knowledge" && <KnowledgeView />}
-          {page === "calendar" && <CalendarView stats={stats} />}
+          {page === "challenge" && (
+            <ChallengeView
+              user={user}
+              onComplete={refreshStats}
+              onAccount={() => setAuthOpen(true)}
+            />
+          )}
           {page === "ranking" && (
             <RankingView user={user} onAccount={() => setAuthOpen(true)} />
           )}
@@ -316,15 +327,15 @@ export default function App() {
       >
         {(
           [
-            { id: "today", label: "今日の微積", icon: BookOpen },
+            { id: "today", label: "今日の学習", icon: BookOpen },
             { id: "knowledge", label: "ノート", icon: Leaf },
-            { id: "calendar", label: "学習記録", icon: CalendarDays },
+            { id: "challenge", label: "挑戦", icon: Target },
             { id: "ranking", label: "ランキング", icon: Trophy },
           ] as const
         ).map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            className={`mobile-bottom-link ${page === id ? "active" : ""}`}
+            className={`mobile-bottom-link ${id === "challenge" ? "challenge-nav-link" : ""} ${page === id ? "active" : ""}`}
             aria-current={page === id ? "page" : undefined}
             onClick={() => navigate(id)}
           >
@@ -391,7 +402,9 @@ function Dashboard({
   onNavigate: (p: Page) => void;
   onRetry: () => void;
 }) {
-  const dateObj = new Date(`${date}T12:00:00+09:00`);
+  const todayActivity = stats.activity.find((a) => a.date === date);
+  const todayPoints = todayActivity?.points ?? 0;
+  const tier = pointColor(todayPoints);
   const complete = problems.filter((p) =>
     stats.solvedIds.includes(p.id),
   ).length;
@@ -409,9 +422,18 @@ function Dashboard({
             <ChartNoAxesColumnIncreasing size={19} />
           </span>
           <div>
-            <span className="stat-label">総ポイント</span>
+            <span className="stat-label">今日のポイント</span>
             <strong>
-              {stats.totalPoints}
+              <span
+                className="daily-points-value"
+                style={
+                  tier
+                    ? { backgroundColor: tier.color, color: tier.foreground }
+                    : undefined
+                }
+              >
+                {todayPoints}
+              </span>
               <small>pt</small>
             </strong>
           </div>
@@ -433,9 +455,9 @@ function Dashboard({
             <CheckCircle2 size={19} />
           </span>
           <div>
-            <span className="stat-label">正解数</span>
+            <span className="stat-label">今日の正解数</span>
             <strong>
-              {stats.solvedCount}
+              {todayActivity?.count ?? 0}
               <small>問</small>
             </strong>
           </div>
@@ -444,7 +466,7 @@ function Dashboard({
       <section className="daily-section">
         <div className="section-heading">
           <div className="section-title">
-            <h2>今日の問題</h2>
+            <h2>今日の3問</h2>
           </div>
           <span className="daily-update">毎日 0:00 更新（日本時間）</span>
         </div>
@@ -515,114 +537,30 @@ function Dashboard({
           <span>今日の正解 {complete} / 3 問</span>
         </div>
       </section>
-      <div className="dashboard-bottom">
-        <section className="progress-preview surface">
-          <div className="preview-heading">
-            <h2>学習カレンダー</h2>
-            <button
-              className="text-link"
-              onClick={() => onNavigate("calendar")}
-            >
-              すべて見る
-              <ArrowRight size={14} />
-            </button>
-          </div>
-          <div className="activity-month">
-            <strong>
-              {dateObj.getMonth() + 1}
-              <span>月</span>
-            </strong>
-            <span>
-              {
-                stats.activity.filter((a) =>
-                  a.date.startsWith(date.slice(0, 7)),
-                ).length
-              }
-              <small> 日学習</small>
-            </span>
-          </div>
-          <MiniCalendar stats={stats} date={date} />
-          <div className="activity-legend">
-            <span>正解した日に記録されます</span>
-            <span>
-              少<em />
-              <em />
-              <em />
-              <em />多
-            </span>
-          </div>
-        </section>
-        <section className="notebook-preview surface">
-          <div className="preview-heading">
-            <h2>微積の基本知識</h2>
-            <span className="notebook-icon">
-              <BookOpen size={20} strokeWidth={1.5} />
-            </span>
-          </div>
-          <div className="notebook-body">
-            <h3>導関数の定義</h3>
-            <p>微分係数は、その点における接線の傾きです。</p>
-            <div className="notebook-formula">
-              <MathText>{String.raw`f'(x)=\lim_{h\to 0}\frac{f(x+h)-f(x)}{h}`}</MathText>
-            </div>
-          </div>
-          <button
-            className="text-link notebook-link"
-            onClick={() => onNavigate("knowledge")}
-          >
-            基本知識を見る
-            <ArrowRight size={15} />
-          </button>
-        </section>
-      </div>
-      <div className="ranking-banner">
-        <span className="ranking-banner-icon">
-          <Trophy size={20} strokeWidth={1.4} />
-        </span>
+      <div className="practice-entry surface">
         <div>
-          <strong>ランキング</strong>
-          <span>基礎 1pt・応用 3pt・難関 5pt</span>
+          <h2>追加の問題を解く</h2>
+          <p>難易度を選んで練習・タイムアタック</p>
         </div>
-        <button className="text-link" onClick={() => onNavigate("ranking")}>
-          ランキングを見る
+        <button
+          className="button button-primary"
+          onClick={() => onNavigate("challenge")}
+        >
+          挑戦する
           <ArrowRight size={16} />
         </button>
       </div>
+      <section className="today-record-section">
+        <div className="section-heading">
+          <div className="section-title">
+            <h2>学習記録</h2>
+          </div>
+        </div>
+        <CalendarView stats={stats} embedded />
+      </section>
     </div>
   );
 }
-function MiniCalendar({ stats, date }: { stats: Stats; date: string }) {
-  const year = Number(date.slice(0, 4)),
-    month = Number(date.slice(5, 7));
-  const days = new Date(year, month, 0).getDate();
-  const start = (new Date(year, month - 1, 1).getDay() + 6) % 7;
-  return (
-    <div className="mini-calendar">
-      {["月", "火", "水", "木", "金", "土", "日"].map((d) => (
-        <span className="mini-day-label" key={d}>
-          {d}
-        </span>
-      ))}
-      {Array.from({ length: start }, (_, i) => (
-        <span key={`blank-${i}`} />
-      ))}
-      {Array.from({ length: days }, (_, i) => {
-        const key = `${date.slice(0, 7)}-${String(i + 1).padStart(2, "0")}`;
-        const a = stats.activity.find((a) => a.date === key);
-        return (
-          <span
-            key={key}
-            title={`${key}：${a?.count || 0}問正解`}
-            className={`mini-day intensity-${a ? Math.min(a.count, 3) : 0} ${key === date ? "is-today" : ""} ${key > date ? "future" : ""}`}
-          >
-            {i + 1}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 function useDialog(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
