@@ -109,6 +109,17 @@ begin
     if not found then return 'null'::jsonb; end if;
     return pg_catalog.to_jsonb(v_user);
 
+  when 'user_delete' then
+    if pg_catalog.jsonb_typeof(p_payload->'userId') is distinct from 'number' or
+       (p_payload->>'userId') !~ '^[1-9][0-9]*$' then
+      raise exception 'Invalid user ID' using errcode = '22023';
+    end if;
+    v_user_id := (p_payload->>'userId')::integer;
+    -- The server passes only the authenticated account ID. Foreign-key cascades
+    -- revoke every session and remove that account's solves in this transaction.
+    delete from daily_calculus.users where id = v_user_id;
+    return 'null'::jsonb;
+
   when 'session_get' then
     select pg_catalog.jsonb_build_object('id', u.id, 'username', u.username, 'createdAt', u.created_at)
       into v_result from daily_calculus.sessions as s

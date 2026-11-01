@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { getProblem } from "../../server/problems";
 
-test("registration, correct answer, saved points, calendar, ranking and relogin form a complete learning flow", async ({
+test("registration, saved points, calendar and ranking survive legacy session-only signout and relogin", async ({
   page,
 }) => {
   const errors: string[] = [];
@@ -51,7 +51,13 @@ test("registration, correct answer, saved points, calendar, ranking and relogin 
     .click();
   await expect(page.locator(".ranking-surface")).toContainText(username);
   await page.getByRole("button", { name: "アカウント", exact: true }).click();
-  await page.getByRole("button", { name: "ログアウト", exact: true }).click();
+  // An already-cached client can still end only its session. The current UI's
+  // explicitly destructive logout is covered in account-deletion.spec.ts.
+  const sessionOnlyLogout = await page.request.post("/api/auth/logout", {
+    data: {},
+  });
+  expect(sessionOnlyLogout.ok()).toBe(true);
+  await page.reload();
   await expect(page.locator(".account-guest")).toBeVisible();
   await page
     .getByRole("button", { name: "登録・ログイン", exact: true })

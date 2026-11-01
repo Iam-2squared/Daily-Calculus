@@ -212,16 +212,52 @@ export function createApp(databasePath?: string, options: Options = {}) {
     await setSession(res, row.id);
     res.json({ user: publicUser(row) });
   });
-  app.post("/api/auth/logout", async (req, res) => {
-    if (typeof req.cookies[COOKIE] === "string")
-      await store.deleteSession(tokenHash(req.cookies[COOKIE]));
+  function clearSessionCookie(res: express.Response) {
     res.clearCookie(COOKIE, {
       httpOnly: true,
       secure: secureCookies,
       sameSite: "lax",
       path: "/",
     });
+  }
+  async function deleteCurrentAccount(res: express.Response) {
+    const user: User | undefined = res.locals.user;
+    if (!user)
+      return void res
+        .status(401)
+        .json({ error: "ログインし直してからお試しください。" });
+    // Only the authenticated session supplies identity. A single database delete
+    // cascades to all of this account's sessions and learning records.
+    await store.deleteUser(user.id);
+    clearSessionCookie(res);
+    res.json({ success: true, accountDeleted: true });
+  }
+  app.post("/api/auth/logout", async (req, res) => {
+    if (req.body?.deleteAccount === true) return deleteCurrentAccount(res);
+    if (
+      req.body?.deleteAccount !== undefined &&
+      req.body.deleteAccount !== false
+    ) {
+      return void res
+        .status(400)
+        .json({ error: "アカウント削除の指定を確認してください。" });
+    }
+    // Cached clients that omit the explicit flag keep their existing account.
+    if (typeof req.cookies[COOKIE] === "string")
+      await store.deleteSession(tokenHash(req.cookies[COOKIE]));
+    clearSessionCookie(res);
     res.json({ success: true });
+  });
+  app.delete("/api/account", async (req, res) => {
+    if (!res.locals.user)
+      return void res
+        .status(401)
+        .json({ error: "ログインし直してからお試しください。" });
+    if (req.body?.confirmation !== "DELETE")
+      return void res
+        .status(400)
+        .json({ error: "アカウント削除の確認が必要です。" });
+    return deleteCurrentAccount(res);
   });
   function allowedDate(date: string): boolean {
     const today = todayJST(now());

@@ -42,7 +42,15 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   logout: () =>
-    request<{ ok: boolean }>("/api/auth/logout", { method: "POST" }),
+    request<{ success: boolean; accountDeleted: boolean }>("/api/auth/logout", {
+      method: "POST",
+      body: JSON.stringify({ deleteAccount: true }),
+    }),
+  deleteAccount: () =>
+    request<{ success: boolean; accountDeleted: boolean }>("/api/account", {
+      method: "DELETE",
+      body: JSON.stringify({ confirmation: "DELETE" }),
+    }),
   problems: (date?: string) =>
     request<{ date: string; problems: Problem[] }>(
       `/api/problems${date ? `?date=${date}` : ""}`,

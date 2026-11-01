@@ -2338,3 +2338,105 @@
     font-size: 9px;
   }
 }
+
+.account-profile .logout-button {
+  min-height: 44px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #92513d;
+  font-size: 12px;
+}
+.account-profile .logout-button:hover {
+  color: #733c2d;
+  background: #faf2ec;
+}
+.account-removal-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 16px 18px;
+  margin-top: 16px;
+  border: 1px solid #eadbcf;
+  border-radius: 8px;
+  background: #fcf7f1;
+  color: #8b5942;
+  text-align: left;
+}
+.account-removal-notice > svg {
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.account-removal-notice > p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 2;
+}
+.account-guest .account-removal-notice {
+  max-width: 520px;
+  margin-top: 24px;
+}
+.account-delete-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 32px;
+  margin-top: 8px;
+  border-color: #e8d9cd;
+}
+.account-delete-section > div {
+  min-width: 0;
+}
+.account-delete-section h2 {
+  margin: 0;
+  font: 500 19px/1.8 var(--serif);
+}
+.account-delete-section p {
+  margin: 9px 0 0;
+  color: #97745d;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.account-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 12px 17px;
+  border: 1px solid #cba791;
+  border-radius: 7px;
+  background: #fff;
+  color: #92513d;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.account-delete-button:hover {
+  background: #fcf3ec;
+  border-color: #b28468;
+}
+@media (max-width: 700px) {
+  .account-removal-notice {
+    padding: 14px 15px;
+  }
+  .account-removal-notice > p {
+    font-size: 13px;
+    line-height: 1.95;
+  }
+  .account-delete-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 20px;
+    padding: 24px;
+  }
+  .account-delete-section p {
+    font-size: 13px;
+    line-height: 1.95;
+  }
+  .account-delete-button {
+    width: 100%;
+    font-size: 13px;
+  }
+}

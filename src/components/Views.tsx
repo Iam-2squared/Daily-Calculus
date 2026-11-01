@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BookOpen,
@@ -12,6 +13,7 @@ import {
   Medal,
   Search,
   Sprout,
+  Trash2,
   Trophy,
   UserRound,
 } from "lucide-react";
@@ -823,11 +825,13 @@ export function AccountView({
   stats,
   onAccount,
   onLogout,
+  onDeleteAccount,
 }: {
   user: User | null;
   stats: Stats;
   onAccount: () => void;
   onLogout: () => void;
+  onDeleteAccount: () => void;
 }) {
   return (
     <div className="secondary-view">
@@ -843,6 +847,12 @@ export function AccountView({
             <br />
             ログインすると、学習記録とポイントが保存されます。
           </p>
+          <div className="account-removal-notice" role="note">
+            <AlertTriangle size={18} aria-hidden="true" />
+            <p>
+              ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+            </p>
+          </div>
           <button className="button button-primary" onClick={onAccount}>
             登録・ログイン <ArrowRight size={17} />
           </button>
@@ -869,10 +879,25 @@ export function AccountView({
                 </p>
               </div>
             </div>
-            <button className="text-button logout-button" onClick={onLogout}>
-              <LogOut size={16} /> ログアウト
+            <button
+              type="button"
+              className="text-button logout-button"
+              onClick={onLogout}
+              aria-describedby="account-logout-warning"
+            >
+              <LogOut size={16} /> 削除してログアウト
             </button>
           </section>
+          <div
+            className="account-removal-notice"
+            id="account-logout-warning"
+            role="note"
+          >
+            <AlertTriangle size={18} aria-hidden="true" />
+            <p>
+              ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+            </p>
+          </div>
           <div className="account-stats">
             <div className="surface">
               <Trophy size={21} strokeWidth={1.5} />
@@ -929,6 +954,26 @@ export function AccountView({
               ログインには、登録したユーザーネームと4桁の数字パスワードを使います。学習記録はこのアカウントに保存されます。
             </p>
           </div>
+          <section
+            className="surface account-delete-section"
+            aria-labelledby="account-delete-heading"
+          >
+            <div>
+              <h2 id="account-delete-heading">アカウントの削除</h2>
+              <p id="account-delete-description">
+                アカウント・学習記録・ポイントを削除します。削除後は元に戻せません。
+              </p>
+            </div>
+            <button
+              type="button"
+              className="account-delete-button"
+              onClick={onDeleteAccount}
+              aria-describedby="account-delete-description"
+            >
+              <Trash2 size={17} aria-hidden="true" />
+              アカウントを削除
+            </button>
+          </section>
         </>
       )}
     </div>

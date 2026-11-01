@@ -59,6 +59,10 @@ function rpcFixture() {
         await local.deleteSession(p.tokenHash);
         result = null;
         break;
+      case "user_delete":
+        await local.deleteUser(p.userId);
+        result = null;
+        break;
       case "rate_consume":
         result = await local.consumeLimit(p.key, p.maximum, p.nowMs);
         break;

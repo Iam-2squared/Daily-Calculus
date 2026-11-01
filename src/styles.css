@@ -2433,6 +2433,82 @@ svg {
   font: 600 17px var(--serif);
   color: var(--green);
 }
+.account-lifecycle-note {
+  margin: 16px 0;
+  padding: 12px 14px;
+  border: 1px solid #eadbcf;
+  border-radius: 8px;
+  background: #fcf7f1;
+  color: #80503c;
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.9;
+}
+.account-deletion-modal {
+  width: 460px;
+  max-width: 100%;
+  max-height: calc(100dvh - 48px);
+  overflow-y: auto;
+  padding: 30px;
+  border-radius: 12px;
+  background: #fff;
+  outline: none;
+}
+.account-deletion-modal > svg {
+  color: #92513d;
+}
+.account-deletion-modal h2 {
+  margin: 16px 0 12px;
+  font: 500 22px/1.6 var(--serif);
+}
+.deletion-username {
+  overflow-wrap: anywhere;
+  color: var(--green);
+  font-size: 14px;
+  font-weight: 600;
+}
+#account-deletion-description {
+  margin-top: 12px;
+  color: #586057;
+  font-size: 14px;
+  line-height: 1.9;
+}
+#account-deletion-description strong {
+  display: block;
+  margin-top: 8px;
+  color: #92513d;
+}
+.account-deletion-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+.account-deletion-actions > button {
+  min-height: 48px;
+  flex: 1;
+  padding: 12px;
+  font-size: 13px;
+}
+.button-danger {
+  background: #92513d;
+  border: 1px solid #92513d;
+  color: #fff;
+}
+.button-danger:hover:not(:disabled) {
+  background: #733c2d;
+  border-color: #733c2d;
+}
+@media (max-width: 480px) {
+  .account-deletion-modal {
+    padding: 24px 20px;
+  }
+  .account-deletion-modal h2 {
+    font-size: 20px;
+  }
+  .account-deletion-actions {
+    flex-direction: column;
+  }
+}
 @media (max-width: 700px) {
   .dashboard-heading h1 {
     font-size: 28px;

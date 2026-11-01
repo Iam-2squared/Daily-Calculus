@@ -48,6 +48,7 @@ export interface Store {
     nowMs: number,
   ): Promise<void>;
   deleteSession(tokenHash: string): Promise<void>;
+  deleteUser(userId: number): Promise<void>;
   consumeLimit(key: string, maximum: number, nowMs: number): Promise<boolean>;
   clearLimit(key: string): Promise<void>;
   recordSolve(input: SolveInput): Promise<SolveRecord>;
@@ -132,6 +133,10 @@ export class SqliteStore implements Store {
   }
   async deleteSession(tokenHash: string) {
     this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(tokenHash);
+  }
+  async deleteUser(userId: number) {
+    // Foreign keys remove every session and solve in the same atomic statement.
+    this.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
   }
   async consumeLimit(
     key: string,
@@ -316,6 +321,9 @@ export class SupabaseStore implements Store {
   }
   async deleteSession(tokenHash: string) {
     await this.rpc("session_delete", { tokenHash });
+  }
+  async deleteUser(userId: number) {
+    await this.rpc("user_delete", { userId });
   }
   consumeLimit(key: string, maximum: number, nowMs: number) {
     return this.rpc<boolean>("rate_consume", {

@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   Menu,
   Target,
+  Trash2,
   Trophy,
   UserRound,
   X,
@@ -71,6 +72,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
+  const [accountAction, setAccountAction] = useState<"logout" | "delete" | null>(
+    null,
+  );
+  const statsVersion = useRef(0);
   const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(
@@ -106,9 +111,12 @@ export default function App() {
   }, [mobileOpen, isMobile]);
   const [toast, setToast] = useState("");
   const refreshStats = useCallback(async () => {
-    setStats(await api.stats());
+    const version = statsVersion.current;
+    const nextStats = await api.stats();
+    if (version === statsVersion.current) setStats(nextStats);
   }, []);
   const loadDaily = useCallback(async () => {
+    const version = statsVersion.current;
     setLoading(true);
     setError("");
     try {
@@ -118,7 +126,7 @@ export default function App() {
       ]);
       setProblems(daily.problems);
       setDate(daily.date);
-      setStats(currentStats);
+      if (version === statsVersion.current) setStats(currentStats);
     } catch (e) {
       setError(e instanceof Error ? e.message : "読み込みに失敗しました。");
     } finally {
@@ -126,9 +134,12 @@ export default function App() {
     }
   }, []);
   useEffect(() => {
+    const version = statsVersion.current;
     api
       .session()
-      .then((s) => setUser(s.user))
+      .then((s) => {
+        if (version === statsVersion.current) setUser(s.user);
+      })
       .catch(() => {});
     void loadDaily();
   }, [loadDaily]);
@@ -160,20 +171,20 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
   async function authenticated(next: User) {
+    statsVersion.current++;
     setUser(next);
     setAuthOpen(false);
     await refreshStats();
     setToast("ログインしました。");
   }
-  async function logout() {
-    try {
-      await api.logout();
-      setUser(null);
-      setStats(EMPTY_STATS);
-      setToast("ログアウトしました。");
-    } catch (e) {
-      setToast(e instanceof Error ? e.message : "ログアウトできませんでした。");
-    }
+  const closeAccountAction = useCallback(() => setAccountAction(null), []);
+  function accountDeleted() {
+    statsVersion.current++;
+    setUser(null);
+    setStats(EMPTY_STATS);
+    setActiveProblem(null);
+    setAccountAction(null);
+    setToast("アカウントと学習記録・ポイントを削除しました。");
   }
   const nav = NAV.find((n) => n.id === page) || NAV[0];
   return (
@@ -181,7 +192,7 @@ export default function App() {
       <aside
         id="main-sidebar"
         className={`sidebar ${mobileOpen ? "is-open" : ""}`}
-        inert={isMobile && !mobileOpen}
+        inert={accountAction !== null || (isMobile && !mobileOpen)}
       >
         <button
           className="icon-button mobile-menu sidebar-close"
@@ -246,7 +257,10 @@ export default function App() {
           onClick={() => setMobileOpen(false)}
         />
       )}
-      <div className="main-shell" inert={isMobile && mobileOpen}>
+      <div
+        className="main-shell"
+        inert={accountAction !== null || (isMobile && mobileOpen)}
+      >
         <header className="topbar">
           <div className="topbar-left">
             <button
@@ -308,7 +322,8 @@ export default function App() {
               user={user}
               stats={stats}
               onAccount={() => setAuthOpen(true)}
-              onLogout={logout}
+              onLogout={() => setAccountAction("logout")}
+              onDeleteAccount={() => setAccountAction("delete")}
             />
           )}
           <footer className="main-footer">
@@ -322,8 +337,8 @@ export default function App() {
       <nav
         className="mobile-bottom-nav"
         aria-label="メインナビゲーション"
-        inert={mobileOpen}
-        aria-hidden={mobileOpen || undefined}
+        inert={mobileOpen || accountAction !== null}
+        aria-hidden={mobileOpen || accountAction !== null || undefined}
       >
         {(
           [
@@ -358,6 +373,14 @@ export default function App() {
         <AuthModal
           onClose={() => setAuthOpen(false)}
           onSuccess={authenticated}
+        />
+      )}
+      {accountAction && user && (
+        <AccountDeletionModal
+          action={accountAction}
+          username={user.username}
+          onClose={closeAccountAction}
+          onDeleted={accountDeleted}
         />
       )}
       {activeProblem && (
@@ -573,7 +596,11 @@ function useDialog(onClose: () => void) {
         const items = ref.current?.querySelectorAll<HTMLElement>(
           'button:not([disabled]), input:not([disabled]), [tabindex="0"]',
         );
-        if (!items?.length) return;
+        if (!items?.length) {
+          e.preventDefault();
+          ref.current?.focus();
+          return;
+        }
         const first = items[0],
           last = items[items.length - 1];
         if (
@@ -657,6 +684,9 @@ function AuthModal({
         <p className="auth-intro">
           ユーザーネームと数字4桁のパスワードを入力してください。
         </p>
+        <p className="account-lifecycle-note">
+          ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+        </p>
         <div className="auth-tabs">
           <button
             className={mode === "register" ? "selected" : ""}
@@ -731,6 +761,105 @@ function AuthModal({
             ? "ユーザーネームとパスワードは大切に保管してください。"
             : "登録済みのアカウントでログインします。"}
         </p>
+      </div>
+    </div>
+  );
+}
+function AccountDeletionModal({
+  action,
+  username,
+  onClose,
+  onDeleted,
+}: {
+  action: "logout" | "delete";
+  username: string;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const pending = useRef(false);
+  const close = useCallback(() => {
+    if (!pending.current) onClose();
+  }, [onClose]);
+  const ref = useDialog(close);
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>(".cancel-deletion")?.focus();
+  }, [ref]);
+  async function remove() {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    try {
+      const result = await (action === "logout"
+        ? api.logout()
+        : api.deleteAccount());
+      if (!result.accountDeleted)
+        throw new Error(
+          "アカウントの削除を確認できませんでした。もう一度お試しください。",
+        );
+      onDeleted();
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "削除できませんでした。もう一度お試しください。",
+      );
+      pending.current = false;
+      setBusy(false);
+    }
+  }
+  const label = action === "logout" ? "削除してログアウト" : "アカウントを削除";
+  return (
+    <div
+      className="modal-backdrop"
+      onMouseDown={(e) => e.target === e.currentTarget && close()}
+    >
+      <div
+        ref={ref}
+        className="account-deletion-modal"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="account-deletion-title"
+        aria-describedby="account-deletion-description"
+        aria-busy={busy}
+        tabIndex={-1}
+      >
+        <Trash2 size={24} aria-hidden="true" />
+        <h2 id="account-deletion-title">{label}しますか？</h2>
+        <p className="deletion-username">{username}</p>
+        <p id="account-deletion-description">
+          アカウント・学習記録・ポイントを削除し、ランキングからも削除します。すべての端末でログアウトします。
+          <strong>削除後は元に戻せません。</strong>
+        </p>
+        {error && (
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="account-deletion-actions">
+          <button
+            className="button button-secondary cancel-deletion"
+            onClick={close}
+            disabled={busy}
+          >
+            キャンセル
+          </button>
+          <button
+            className="button button-danger"
+            onClick={remove}
+            disabled={busy}
+          >
+            {busy ? (
+              <>
+                <LoaderCircle className="spin" size={18} />削除中
+              </>
+            ) : (
+              label
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
