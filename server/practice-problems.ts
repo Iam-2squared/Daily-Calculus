@@ -1,8 +1,42 @@
-import type { Level, PrivateProblem } from "../shared/types.js";
+import type { Level, PrivateProblem, ProblemSubject } from "../shared/types.js";
 
-type Content = Omit<PrivateProblem, "id" | "date" | "level" | "correctIndex">;
+type Content = Omit<
+  PrivateProblem,
+  "id" | "date" | "level" | "correctIndex" | "subject"
+>;
 type Random = (minimum: number, maximum: number) => number;
 const MASK_64 = (1n << 64n) - 1n;
+
+// Match the mathematical operation requested by each existing template. The
+// exponential limit is an application of the second derivative (Taylor's
+// formula); extrema and differentiating an integral are differentiation tasks.
+// This table consumes no randomness, preserving all previously issued seeds.
+const TEMPLATE_SUBJECTS: Record<Level, readonly ProblemSubject[]> = {
+  basic: [
+    "differentiation", // Polynomial derivative at a point.
+    "integration", // Definite integral of a power.
+    "differentiation", // Trigonometric derivative.
+    "differentiation", // Logarithmic derivative at a point.
+    "integration", // Indefinite integral of a power.
+    "integration", // Trigonometric definite integral.
+  ],
+  applied: [
+    "differentiation", // Chain rule.
+    "integration", // Integration by parts.
+    "integration", // Area under a curve.
+    "differentiation", // Minimum of a cubic function.
+    "differentiation", // Derivative of an integral with a variable upper bound.
+    "integration", // Integration by substitution.
+  ],
+  advanced: [
+    "differentiation", // Exponential limit from the second derivative.
+    "integration", // Exponential improper integral.
+    "integration", // Symmetry in a definite integral.
+    "integration", // Improper integral by substitution.
+    "integration", // Improper integral containing a logarithm.
+    "integration", // Improper integral containing a squared logarithm.
+  ],
+};
 
 /** SplitMix64 uses every seed bit and has a stable, platform-independent sequence. */
 function randomFromSeed(seed: string): Random {
@@ -509,6 +543,7 @@ export function generatePracticeProblem(
     ...content,
     choices: shuffled.map((choice) => choice.text),
     correctIndex: shuffled.findIndex((choice) => choice.correct),
+    subject: TEMPLATE_SUBJECTS[level][template],
     level,
     date,
     id,

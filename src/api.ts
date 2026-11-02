@@ -2,6 +2,7 @@ import type {
   AnswerResult,
   ChallengeMode,
   ChallengeResponse,
+  ChallengeSubject,
   Level,
   Leaderboard,
   Problem,
@@ -59,15 +60,24 @@ export const api = {
     request<{ problems: Problem[] }>(
       `/api/archive${level ? `?level=${level}` : ""}`,
     ),
-  startChallenge: (level: Level, mode: ChallengeMode) =>
+  startChallenge: (
+    level: Level,
+    mode: ChallengeMode,
+    subject: ChallengeSubject = "all",
+  ) =>
     request<ChallengeResponse>("/api/challenges/start", {
       method: "POST",
-      body: JSON.stringify({ level, mode }),
+      body: JSON.stringify({ level, mode, subject }),
     }),
-  nextChallenge: (level: Level, mode: ChallengeMode, runToken?: string) =>
+  nextChallenge: (
+    level: Level,
+    mode: ChallengeMode,
+    runToken?: string,
+    subject: ChallengeSubject = "all",
+  ) =>
     request<ChallengeResponse>("/api/challenges/next", {
       method: "POST",
-      body: JSON.stringify({ level, mode, runToken }),
+      body: JSON.stringify({ level, mode, runToken, subject }),
     }),
   answer: (id: string, choiceIndex: number, runToken?: string) =>
     request<AnswerResult>(`/api/problems/${encodeURIComponent(id)}/answer`, {

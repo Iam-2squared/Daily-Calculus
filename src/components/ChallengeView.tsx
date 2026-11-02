@@ -16,12 +16,13 @@ import type {
   AnswerResult,
   ChallengeMode,
   ChallengeResponse,
+  ChallengeSubject,
   Level,
   Problem,
   TimeAttackRun,
   User,
 } from "../../shared/types";
-import { LEVELS } from "../../shared/types";
+import { CHALLENGE_SUBJECTS, LEVELS } from "../../shared/types";
 import { api } from "../api";
 import { MathText } from "./Math";
 import "../challenge.css";
@@ -63,6 +64,7 @@ export function ChallengeView({
 }) {
   const [level, setLevel] = useState<Level>("basic");
   const [mode, setMode] = useState<ChallengeMode>("practice");
+  const [subject, setSubject] = useState<ChallengeSubject>("all");
   const [phase, setPhase] = useState<Phase>("setup");
   const [problem, setProblem] = useState<Problem | null>(null);
   const [run, setRun] = useState<TimeAttackRun | null>(null);
@@ -227,7 +229,7 @@ export function ChallengeView({
     setRetryAction(null);
     setRefreshFailed(false);
     try {
-      const data = await api.startChallenge(level, mode);
+      const data = await api.startChallenge(level, mode, subject);
       if (!isCurrent(id)) return;
       totalsRef.current = emptyTotals();
       setTotals(emptyTotals());
@@ -260,7 +262,12 @@ export function ChallengeView({
     setError("");
     setRetryAction(null);
     try {
-      const data = await api.nextChallenge(level, mode, runRef.current?.token);
+      const data = await api.nextChallenge(
+        level,
+        mode,
+        runRef.current?.token,
+        subject,
+      );
       if (!isCurrent(id)) return;
       if (skipping) {
         totalsRef.current = {
@@ -393,11 +400,33 @@ export function ChallengeView({
           <div>
             <h1>挑戦</h1>
             <p className="challenge-description">
-              難易度とモードを選んで問題を解けます。
+              出題範囲・難易度・モードを選んで問題を解けます。
             </p>
           </div>
         </header>
         <div className="surface challenge-setup">
+          <fieldset
+            className="challenge-settings"
+            aria-label="出題範囲"
+            disabled={busy !== null}
+          >
+            <legend>出題範囲</legend>
+            <div className="challenge-subject-options">
+              {(["differentiation", "integration", "all"] as const).map(
+                (option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={subject === option ? "selected" : ""}
+                    aria-pressed={subject === option}
+                    onClick={() => setSubject(option)}
+                  >
+                    {CHALLENGE_SUBJECTS[option]}
+                  </button>
+                ),
+              )}
+            </div>
+          </fieldset>
           <fieldset className="challenge-settings" disabled={busy !== null}>
             <legend>難易度</legend>
             <div className="challenge-level-options">
@@ -484,7 +513,12 @@ export function ChallengeView({
           <div>
             <h1>{modeName(mode)}の結果</h1>
             <p className="challenge-description">
-              {LEVELS[level].name} ·{" "}
+              <span className="challenge-summary-subject">
+                出題範囲：{CHALLENGE_SUBJECTS[subject]}
+              </span>
+              {" · "}
+              {LEVELS[level].name}
+              {" · "}
               {finishReason === "expired" ? "制限時間終了" : "終了"}
             </p>
           </div>
@@ -556,6 +590,9 @@ export function ChallengeView({
           <h1>{modeName(mode)}</h1>
           <p>
             <span>{LEVELS[level].name}</span> 正解で {LEVELS[level].points} pt
+          </p>
+          <p className="challenge-run-subject">
+            出題範囲：{CHALLENGE_SUBJECTS[subject]}
           </p>
         </div>
         {mode === "time-attack" && (

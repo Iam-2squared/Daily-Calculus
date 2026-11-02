@@ -1,4 +1,11 @@
 export type Level = "basic" | "applied" | "advanced";
+export type ProblemSubject = "differentiation" | "integration";
+export type ChallengeSubject = ProblemSubject | "all";
+export const CHALLENGE_SUBJECTS: Record<ChallengeSubject, string> = {
+  differentiation: "微分",
+  integration: "積分",
+  all: "全て",
+};
 export const LEVELS: Record<
   Level,
   { name: string; points: number; english: string; description: string }
@@ -26,6 +33,7 @@ export interface Problem {
   id: string;
   date: string;
   level: Level;
+  subject?: ProblemSubject;
   title: string;
   topic: string;
   prompt: string;

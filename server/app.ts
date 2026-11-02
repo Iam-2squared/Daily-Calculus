@@ -21,6 +21,7 @@ import {
   ChallengeError,
   isChallengeId,
   validChallengeInput,
+  validChallengeSubject,
 } from "./challenges.js";
 
 const scrypt = promisify(scryptCallback);
@@ -296,11 +297,11 @@ export function createApp(databasePath?: string, options: Options = {}) {
     res: express.Response,
     start: boolean,
   ) {
-    const { level, mode, runToken } = req.body || {};
-    if (!validChallengeInput(level, mode))
+    const { level, mode, runToken, subject = "all" } = req.body || {};
+    if (!validChallengeInput(level, mode) || !validChallengeSubject(subject))
       return void res
         .status(400)
-        .json({ error: "難易度と挑戦モードを選んでください。" });
+        .json({ error: "難易度・挑戦モード・出題範囲を選んでください。" });
     const time = now();
     // Eighty new questions per minute allows sustained study without a daily cap.
     // Minute buckets keep compatibility with the existing persisted rate limiter.
@@ -312,11 +313,9 @@ export function createApp(databasePath?: string, options: Options = {}) {
       ))
     ) {
       res.set("Retry-After", "60");
-      return void res
-        .status(429)
-        .json({
-          error: "問題の取得が続いています。少し待ってからお試しください。",
-        });
+      return void res.status(429).json({
+        error: "問題の取得が続いています。少し待ってからお試しください。",
+      });
     }
     res.json(
       challenges.issue(
@@ -326,6 +325,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
         time,
         runToken,
         start,
+        subject,
       ),
     );
   }

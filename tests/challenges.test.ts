@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { once } from "node:events";
+import { createHmac } from "node:crypto";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../server/app.js";
 import { Challenges } from "../server/challenges.js";
 import type { ChallengeResponse } from "../shared/types.js";
+import { generatePracticeProblem } from "../server/practice-problems.js";
 
 const SIGNING_KEY = "test_challenge_key_stable_across_app_instances_123456789";
 async function harness(start = new Date("2026-10-28T05:00:00Z")) {
@@ -388,5 +390,252 @@ test("issuance throttling is a short request limit and never a daily question ca
       })
     ).status,
     200,
+  );
+});
+
+test("subject selection stays fixed across next questions in every difficulty and both modes, with unchanged points", async (t) => {
+  const h = await harness();
+  t.after(() => h.close());
+  const owner = await h.register();
+  let expectedPoints = 0;
+  for (const level of ["basic", "applied", "advanced"] as const) {
+    for (const mode of ["practice", "time-attack"] as const) {
+      for (const subject of ["differentiation", "integration"] as const) {
+        let runToken: string | undefined;
+        let deadline: number | undefined;
+        for (let index = 0; index < 3; index++) {
+          const challenge = await h.request(
+            `/api/challenges/${index === 0 ? "start" : "next"}`,
+            { level, mode, subject, runToken },
+            owner.cookie,
+          );
+          assert.equal(challenge.status, 200);
+          assert.equal(challenge.body.problem.subject, subject);
+          assert.equal(challenge.body.problem.level, level);
+          if (mode === "time-attack") {
+            if (index === 0) {
+              runToken = challenge.body.run.token;
+              deadline = challenge.body.run.endsAt;
+            }
+            assert.equal(challenge.body.run.token, runToken);
+            assert.equal(challenge.body.run.endsAt, deadline);
+          }
+          const result = await h.request(
+            answerPath(challenge.body.problem.id),
+            { choiceIndex: h.choice(challenge.body, owner.userId), runToken },
+            owner.cookie,
+          );
+          const award = { basic: 1, applied: 3, advanced: 5 }[level];
+          assert.equal(result.status, 200);
+          assert.equal(result.body.pointsEarned, award);
+          expectedPoints += award;
+          const duplicate = await h.request(
+            answerPath(challenge.body.problem.id),
+            { choiceIndex: h.choice(challenge.body, owner.userId), runToken },
+            owner.cookie,
+          );
+          assert.equal(duplicate.body.pointsEarned, 0);
+        }
+      }
+    }
+  }
+  assert.equal(expectedPoints, 108);
+  const stats = (await h.request("/api/stats", undefined, owner.cookie)).body;
+  assert.equal(stats.totalPoints, expectedPoints);
+  assert.equal(stats.solvedCount, 36);
+});
+
+function fixtureSign(domain: "problem" | "run", payload: string): string {
+  return createHmac("sha256", SIGNING_KEY)
+    .update(`daily-calculus:${domain}:${payload}`)
+    .digest()
+    .subarray(0, 16)
+    .toString("base64url");
+}
+
+test("invalid subjects, mid-run subject changes, tampered subject codes and mismatched generated subjects are rejected", async (t) => {
+  const h = await harness();
+  t.after(() => h.close());
+  const owner = await h.register();
+  for (const subject of [
+    "",
+    "derivative",
+    "ALL",
+    "toString",
+    null,
+    1,
+    {},
+    [],
+  ]) {
+    for (const path of ["start", "next"]) {
+      const result = await h.request(
+        `/api/challenges/${path}`,
+        { level: "basic", mode: "practice", subject },
+        owner.cookie,
+      );
+      assert.equal(result.status, 400);
+    }
+  }
+  const challenge = await h.request(
+    "/api/challenges/start",
+    { level: "basic", mode: "time-attack", subject: "integration" },
+    owner.cookie,
+  );
+  assert.equal(challenge.status, 200);
+  const runToken = challenge.body.run.token;
+  for (const subject of ["all", "differentiation", undefined]) {
+    assert.equal(
+      (
+        await h.request(
+          "/api/challenges/next",
+          { level: "basic", mode: "time-attack", subject, runToken },
+          owner.cookie,
+        )
+      ).status,
+      403,
+    );
+  }
+  const changed = runToken.split(".");
+  assert.equal(changed[0], "r2");
+  changed[5] = "d";
+  const tampered = changed.join(".");
+  assert.equal(
+    (
+      await h.request(
+        "/api/challenges/next",
+        {
+          level: "basic",
+          mode: "time-attack",
+          subject: "differentiation",
+          runToken: tampered,
+        },
+        owner.cookie,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await h.request(
+        answerPath(challenge.body.problem.id),
+        { choiceIndex: 0, runToken: tampered },
+        owner.cookie,
+      )
+    ).status,
+    403,
+  );
+  // A valid signed question still must match its run's selected subject.
+  // Construct a server-signed differentiation fixture with the same run nonce.
+  let seed = "";
+  for (let candidate = 0; candidate < 100; candidate++) {
+    const value = candidate.toString(16).padStart(16, "0");
+    if (
+      generatePracticeProblem(
+        "basic",
+        value,
+        challenge.body.problem.date,
+        "fixture",
+      ).subject === "differentiation"
+    ) {
+      seed = value;
+      break;
+    }
+  }
+  assert.ok(seed);
+  const parts = challenge.body.problem.id.split(".");
+  parts[4] = seed;
+  const payload = parts.slice(0, 6).join(".");
+  const mismatchedId = `${payload}.${fixtureSign("problem", payload)}`;
+  assert.equal(
+    (
+      await h.request(
+        answerPath(mismatchedId),
+        { choiceIndex: 0, runToken },
+        owner.cookie,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (await h.request("/api/stats", undefined, owner.cookie)).body.totalPoints,
+    0,
+  );
+});
+
+test("legacy signed question IDs and r1 runs resolve unchanged and continue as mixed-subject challenges", async (t) => {
+  const h = await harness();
+  t.after(() => h.close());
+  const owner = await h.register();
+  const date = "2026-10-28";
+  const day = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000).toString(
+    36,
+  );
+  const seed = "0123456789abcdef";
+  const nonce = Buffer.alloc(8, 7).toString("base64url");
+  const runPayload = [
+    "r1",
+    "b",
+    owner.userId.toString(36),
+    h.time().toString(36),
+    nonce,
+  ].join(".");
+  const runToken = `${runPayload}.${fixtureSign("run", runPayload)}`;
+  const signer = new Challenges(SIGNING_KEY);
+  for (const prefix of ["c1p", "c1t"]) {
+    const payload = [
+      prefix,
+      "b",
+      day,
+      owner.userId.toString(36),
+      seed,
+      prefix === "c1t" ? nonce : "-",
+    ].join(".");
+    const id = `${payload}.${fixtureSign("problem", payload)}`;
+    const expected = generatePracticeProblem("basic", seed, date, id);
+    assert.deepEqual(
+      signer.resolve(
+        id,
+        owner.userId,
+        new Date(h.time()),
+        prefix === "c1t" ? runToken : undefined,
+      ),
+      expected,
+    );
+    const answer = await h.request(
+      answerPath(id),
+      {
+        choiceIndex: expected.correctIndex,
+        ...(prefix === "c1t" ? { runToken } : {}),
+      },
+      owner.cookie,
+    );
+    assert.equal(answer.status, 200);
+    assert.equal(answer.body.pointsEarned, 1);
+  }
+  const next = await h.request(
+    "/api/challenges/next",
+    { level: "basic", mode: "time-attack", runToken },
+    owner.cookie,
+  );
+  assert.equal(next.status, 200);
+  assert.equal(next.body.run.token, runToken);
+  assert.equal(next.body.run.endsAt, h.time() + 180000);
+  assert.ok(
+    ["differentiation", "integration"].includes(next.body.problem.subject),
+  );
+  assert.equal(
+    (
+      await h.request(
+        "/api/challenges/next",
+        {
+          level: "basic",
+          mode: "time-attack",
+          subject: "integration",
+          runToken,
+        },
+        owner.cookie,
+      )
+    ).status,
+    403,
   );
 });

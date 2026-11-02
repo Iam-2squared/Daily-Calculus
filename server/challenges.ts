@@ -4,6 +4,7 @@ import {
   LEVELS,
   type ChallengeMode,
   type ChallengeResponse,
+  type ChallengeSubject,
   type Level,
   type PrivateProblem,
   type TimeAttackRun,
@@ -23,6 +24,17 @@ const CODE_LEVEL: Record<string, Level> = {
   a: "applied",
   h: "advanced",
 };
+const SUBJECT_CODE: Record<ChallengeSubject, string> = {
+  all: "a",
+  differentiation: "d",
+  integration: "i",
+};
+const CODE_SUBJECT: Record<string, ChallengeSubject> = {
+  a: "all",
+  d: "differentiation",
+  i: "integration",
+};
+type ParsedRun = TimeAttackRun & { nonce: string; subject: ChallengeSubject };
 
 export class ChallengeError extends Error {
   constructor(
@@ -53,6 +65,15 @@ export function validChallengeInput(
     typeof level === "string" &&
     Object.hasOwn(LEVELS, level) &&
     (mode === "practice" || mode === "time-attack")
+  );
+}
+export function validChallengeSubject(
+  subject: unknown,
+): subject is ChallengeSubject {
+  return (
+    subject === "all" ||
+    subject === "differentiation" ||
+    subject === "integration"
   );
 }
 function fromBase36(value: string): number {
@@ -105,17 +126,17 @@ export class Challenges {
     userId: number,
     level: Level,
     nowMs: number,
-  ): TimeAttackRun & { nonce: string } {
+  ): ParsedRun {
     if (typeof token !== "string" || token.length > 120) throw invalid();
     const parts = token.split(".");
-    if (
-      parts.length !== 6 ||
-      parts[0] !== "r1" ||
-      !/^[A-Za-z0-9_-]{11}$/.test(parts[4])
-    )
+    const legacy = parts[0] === "r1" && parts.length === 6;
+    const current = parts[0] === "r2" && parts.length === 7;
+    if ((!legacy && !current) || !/^[A-Za-z0-9_-]{11}$/.test(parts[4]))
       throw invalid();
-    const payload = parts.slice(0, 5).join(".");
-    this.check("run", payload, parts[5]);
+    const subject = legacy ? "all" : CODE_SUBJECT[parts[5]];
+    if (!validChallengeSubject(subject)) throw invalid();
+    const payload = parts.slice(0, -1).join(".");
+    this.check("run", payload, parts.at(-1)!);
     if (CODE_LEVEL[parts[1]] !== level || fromBase36(parts[2]) !== userId)
       throw invalid();
     const startedAt = fromBase36(parts[3]);
@@ -127,6 +148,7 @@ export class Challenges {
       endsAt,
       durationSeconds: TIME_ATTACK_SECONDS,
       nonce: parts[4],
+      subject,
     };
   }
   issue(
@@ -136,18 +158,20 @@ export class Challenges {
     now: Date,
     runToken?: unknown,
     start = false,
+    subject: ChallengeSubject = "all",
   ): ChallengeResponse {
     const timestamp = now.getTime();
-    let run: (TimeAttackRun & { nonce: string }) | undefined;
+    let run: ParsedRun | undefined;
     if (mode === "time-attack") {
       if (start) {
         const nonce = randomBytes(8).toString("base64url");
         const payload = [
-          "r1",
+          "r2",
           LEVEL_CODE[level],
           userId.toString(36),
           timestamp.toString(36),
           nonce,
+          SUBJECT_CODE[subject],
         ].join(".");
         const token = `${payload}.${this.sign("run", payload)}`;
         run = {
@@ -155,21 +179,37 @@ export class Challenges {
           endsAt: timestamp + TIME_ATTACK_SECONDS * 1000,
           durationSeconds: TIME_ATTACK_SECONDS,
           nonce,
+          subject,
         };
-      } else run = this.run(runToken, userId, level, timestamp);
+      } else {
+        run = this.run(runToken, userId, level, timestamp);
+        if (run.subject !== subject) throw invalid();
+      }
     }
     const date = todayJST(now);
-    const seed = randomBytes(8).toString("hex");
-    const payload = [
-      mode === "practice" ? "c1p" : "c1t",
-      LEVEL_CODE[level],
-      encodeDate(date),
-      userId.toString(36),
-      seed,
-      run?.nonce || "-",
-    ].join(".");
-    const id = `${payload}.${this.sign("problem", payload)}`;
-    const problem = generatePracticeProblem(level, seed, date, id);
+    let problem: PrivateProblem | undefined;
+    for (let attempt = 0; attempt < 128; attempt++) {
+      const seed = randomBytes(8).toString("hex");
+      const payload = [
+        mode === "practice" ? "c1p" : "c1t",
+        LEVEL_CODE[level],
+        encodeDate(date),
+        userId.toString(36),
+        seed,
+        run?.nonce || "-",
+      ].join(".");
+      const id = `${payload}.${this.sign("problem", payload)}`;
+      const candidate = generatePracticeProblem(level, seed, date, id);
+      if (subject === "all" || candidate.subject === subject) {
+        problem = candidate;
+        break;
+      }
+    }
+    if (!problem)
+      throw new ChallengeError(
+        503,
+        "この分野の問題を準備できませんでした。もう一度お試しください。",
+      );
     return {
       problem: publicProblem(problem),
       serverNow: timestamp,
@@ -205,10 +245,15 @@ export class Challenges {
     const date = decodeDate(parts[2]);
     const today = todayJST(now);
     if (date > today || date < addDays(today, -365)) throw invalid();
+    const problem = generatePracticeProblem(level, parts[4], date, id);
     if (parts[0] === "c1t") {
       const run = this.run(runToken, userId, level, now.getTime());
-      if (run.nonce !== parts[5]) throw invalid();
+      if (
+        run.nonce !== parts[5] ||
+        (run.subject !== "all" && problem.subject !== run.subject)
+      )
+        throw invalid();
     } else if (parts[5] !== "-") throw invalid();
-    return generatePracticeProblem(level, parts[4], date, id);
+    return problem;
   }
 }

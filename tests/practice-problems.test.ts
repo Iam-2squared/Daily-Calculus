@@ -1,9 +1,10 @@
 import { test } from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import katex from "katex";
 import { generatePracticeProblem } from "../server/practice-problems.js";
 import { publicProblem } from "../server/problems.js";
-import type { Level } from "../shared/types.js";
+import type { Level, ProblemSubject } from "../shared/types.js";
 
 const levels: Level[] = ["basic", "applied", "advanced"];
 const seedFor = (value: number) => value.toString(16).padStart(16, "0");
@@ -51,6 +52,60 @@ test("every practice family matches independent mathematical reference answers",
     });
     assert.equal(families.size, 6);
   }
+});
+
+test("all eighteen families expose the subject of the operation being asked", () => {
+  // In referenceSeeds order: each fixture names a mathematical task rather than
+  // relying on template parity or searching rendered formulas for symbols.
+  const expected: Record<Level, Record<string, ProblemSubject>> = {
+    basic: {
+      "三角関数の定積分": "integration",
+      "対数関数の微分係数": "differentiation",
+      "多項式の微分係数": "differentiation",
+      "三角関数の微分": "differentiation",
+      "べき関数の不定積分": "integration",
+      "べき関数の定積分": "integration",
+    },
+    applied: {
+      "置換積分による定積分": "integration",
+      "三次関数の最小値": "differentiation",
+      "合成関数の微分係数": "differentiation",
+      "曲線と x 軸の間の面積": "integration",
+      "微積分の基本定理": "differentiation",
+      "部分積分による定積分": "integration",
+    },
+    advanced: {
+      "対数の二乗を含む広義積分": "integration",
+      "置換による広義積分": "integration",
+      "指数関数の極限": "differentiation",
+      "偶関数と奇関数の積分": "integration",
+      "対数を含む広義積分": "integration",
+      "指数関数の広義積分": "integration",
+    },
+  };
+  for (const level of levels) {
+    for (const seed of referenceSeeds) {
+      const problem = generate(level, seed);
+      assert.equal(problem.subject, expected[level][problem.title], problem.title);
+      assert.equal(publicProblem(problem).subject, problem.subject);
+    }
+  }
+});
+
+test("subject metadata preserves previously issued questions and shuffled answers", () => {
+  // Captured before subject metadata was added. Existing signed question IDs
+  // must regenerate exactly the same mathematics and correct choice position.
+  const hash = createHash("sha256");
+  for (const level of levels) {
+    for (let seed = 0; seed < 512; seed++) {
+      const p = generate(level, seed);
+      hash.update(JSON.stringify([
+        p.formula, p.prompt, p.choices, p.correctIndex, p.hint,
+        p.explanation, p.explanationFormulas,
+      ]));
+    }
+  }
+  assert.equal(hash.digest("hex"), "13dca379c055568738c081520bbca60292dec734016ffddedb54c9485132e357");
 });
 
 /** A small test-only expression parser; no eval and no production math implementation. */
