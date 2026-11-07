@@ -28,13 +28,15 @@ test("daily calculus answers agree with independent reference calculations", () 
   }
 });
 
-test("a complete question cycle has valid answer choices and renderable mathematics", () => {
+test("a complete legacy question cycle has valid answer choices and renderable mathematics", () => {
   const formulas = new Set<string>();
   for (let day = 0; day < 1800; day++) {
     const date = new Date(Date.UTC(2022, 0, 1) + day * 86_400_000)
       .toISOString()
       .slice(0, 10);
-    const questions = getProblems(date);
+    const questions = (["basic", "applied", "advanced"] as const).map(
+      (level) => getProblem(`${date}:${level}`)!,
+    );
     assert.equal(questions.length, 3);
     for (const p of questions) {
       assert.equal(new Set(p.choices).size, 4, `${p.id} has duplicate choices`);

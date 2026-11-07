@@ -7,6 +7,7 @@ import type {
   Problem,
 } from "../../shared/types";
 import { generatePracticeProblem } from "../../server/practice-problems";
+import { generateBankProblem } from "../../server/problem-bank/index";
 
 async function issue(
   page: Page,
@@ -33,7 +34,10 @@ async function issue(
 }
 
 async function correctAnswer(page: Page, problem: Problem) {
-  const privateProblem = generatePracticeProblem(
+  const generate = /^c2[pt]\./.test(problem.id)
+    ? generateBankProblem
+    : generatePracticeProblem;
+  const privateProblem = generate(
     problem.level,
     problem.id.split(".")[4],
     problem.date,

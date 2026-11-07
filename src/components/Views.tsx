@@ -24,7 +24,7 @@ import type {
   Stats,
   User,
 } from "../../shared/types";
-import { LEVELS } from "../../shared/types";
+import { DAILY_CATEGORIES, LEVELS } from "../../shared/types";
 import { api } from "../api";
 import { lessons } from "../lessons";
 import { MathText } from "./Math";
@@ -762,11 +762,17 @@ export function ArchiveView({
               >
                 <div className="archive-card-top">
                   <span className={`archive-level ${p.level}`}>
+                    {p.dailyCategory && "難易度："}
                     {LEVELS[p.level].name}
                     <small>+{LEVELS[p.level].points}pt</small>
                   </span>
                   <span>{dateLabel(p.date)}</span>
                 </div>
+                {p.dailyCategory && (
+                  <p className="archive-daily-category">
+                    {DAILY_CATEGORIES[p.dailyCategory]}
+                  </p>
+                )}
                 <div className="archive-card-formula">
                   <MathText display>{p.formula}</MathText>
                 </div>

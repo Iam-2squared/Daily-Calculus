@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import type { ChallengeResponse, Problem } from "../../shared/types";
 import { generatePracticeProblem } from "../../server/practice-problems";
+import { generateBankProblem } from "../../server/problem-bank/index";
 
 async function begin(page: Page): Promise<ChallengeResponse> {
   const response = page.waitForResponse(
@@ -13,7 +14,10 @@ async function begin(page: Page): Promise<ChallengeResponse> {
 }
 async function correctAnswer(page: Page, problem: Problem) {
   const seed = problem.id.split(".")[4];
-  const privateProblem = generatePracticeProblem(
+  const generate = /^c2[pt]\./.test(problem.id)
+    ? generateBankProblem
+    : generatePracticeProblem;
+  const privateProblem = generate(
     problem.level,
     seed,
     problem.date,

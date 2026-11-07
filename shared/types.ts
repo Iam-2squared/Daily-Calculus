@@ -1,6 +1,12 @@
 export type Level = "basic" | "applied" | "advanced";
 export type ProblemSubject = "differentiation" | "integration";
 export type ChallengeSubject = ProblemSubject | "all";
+export type DailyCategory = "differentiation" | "integration" | "application";
+export const DAILY_CATEGORIES: Record<DailyCategory, string> = {
+  differentiation: "微分",
+  integration: "積分",
+  application: "応用",
+};
 export const CHALLENGE_SUBJECTS: Record<ChallengeSubject, string> = {
   differentiation: "微分",
   integration: "積分",
@@ -34,6 +40,7 @@ export interface Problem {
   date: string;
   level: Level;
   subject?: ProblemSubject;
+  dailyCategory?: DailyCategory;
   title: string;
   topic: string;
   prompt: string;

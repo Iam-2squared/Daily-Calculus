@@ -7,6 +7,7 @@ import { createApp } from "../server/app.js";
 import { Challenges } from "../server/challenges.js";
 import type { ChallengeResponse } from "../shared/types.js";
 import { generatePracticeProblem } from "../server/practice-problems.js";
+import { generateBankProblem } from "../server/problem-bank/index.js";
 
 const SIGNING_KEY = "test_challenge_key_stable_across_app_instances_123456789";
 async function harness(start = new Date("2026-10-28T05:00:00Z")) {
@@ -45,12 +46,16 @@ async function harness(start = new Date("2026-10-28T05:00:00Z")) {
     return { cookie: result.cookie!, userId: result.body.user.id as number };
   }
   function choice(response: ChallengeResponse, userId: number) {
-    return signer.resolve(
+    const resolved = signer.resolve(
       response.problem.id,
       userId,
       current,
       response.run?.token,
-    ).correctIndex;
+    );
+    assert.equal(resolved.formula, response.problem.formula);
+    assert.deepEqual(resolved.choices, response.problem.choices);
+    assert.equal(resolved.subject, response.problem.subject);
+    return resolved.correctIndex;
   }
   return {
     app,
@@ -98,6 +103,7 @@ test("unlimited practice issues fresh questions beyond the three daily questions
     );
     assert.equal(challenge.status, 200);
     assert.equal(challenge.body.problem.level, level);
+    assert.match(challenge.body.problem.id, /^c2p\./);
     assert.equal(challenge.body.run, undefined);
     assert.equal(challenge.body.serverNow, h.time());
     assert.equal("correctIndex" in challenge.body.problem, false);
@@ -530,7 +536,7 @@ test("invalid subjects, mid-run subject changes, tampered subject codes and mism
   for (let candidate = 0; candidate < 100; candidate++) {
     const value = candidate.toString(16).padStart(16, "0");
     if (
-      generatePracticeProblem(
+      generateBankProblem(
         "basic",
         value,
         challenge.body.problem.date,
@@ -638,4 +644,91 @@ test("legacy signed question IDs and r1 runs resolve unchanged and continue as m
     ).status,
     403,
   );
+});
+
+test("legacy c1 signed seeds retain exact math and answer order under filtered r2 runs", () => {
+  const signer = new Challenges(SIGNING_KEY);
+  const date = "2026-11-07";
+  const time = new Date(`${date}T05:00:00Z`);
+  const uid = 17;
+  const seed = "0123456789abcdef";
+  const nonce = Buffer.alloc(8, 9).toString("base64url");
+  const day = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000).toString(
+    36,
+  );
+  const snapshots = [
+    {
+      level: "basic",
+      code: "b",
+      formula: "f(x)=11x^{2}+x",
+      choices: ["-89", "88", "90", "89"],
+      correctIndex: 3,
+    },
+    {
+      level: "applied",
+      code: "a",
+      formula: "f(x)=(5x+1)^{2}",
+      choices: ["-110", "22", "220", "110"],
+      correctIndex: 3,
+    },
+    {
+      level: "advanced",
+      code: "h",
+      formula: "\\lim_{x\\to0}\\frac{4(e^{7x}-1-7x)}{x^2}",
+      choices: ["-98", "196", "14", "98"],
+      correctIndex: 3,
+    },
+  ] as const;
+  for (const snapshot of snapshots) {
+    const runPayload = [
+      "r2",
+      snapshot.code,
+      uid.toString(36),
+      time.getTime().toString(36),
+      nonce,
+      "d",
+    ].join(".");
+    const runToken = `${runPayload}.${fixtureSign("run", runPayload)}`;
+    for (const prefix of ["c1p", "c1t"]) {
+      const payload = [
+        prefix,
+        snapshot.code,
+        day,
+        uid.toString(36),
+        seed,
+        prefix === "c1t" ? nonce : "-",
+      ].join(".");
+      const id = `${payload}.${fixtureSign("problem", payload)}`;
+      const problem = signer.resolve(
+        id,
+        uid,
+        time,
+        prefix === "c1t" ? runToken : undefined,
+      );
+      assert.deepEqual(
+        {
+          formula: problem.formula,
+          choices: problem.choices,
+          correctIndex: problem.correctIndex,
+        },
+        {
+          formula: snapshot.formula,
+          choices: [...snapshot.choices],
+          correctIndex: snapshot.correctIndex,
+        },
+      );
+      assert.equal(problem.subject, "differentiation");
+      assert.throws(
+        () =>
+          signer.resolve(
+            id.replace("c1", "c2"),
+            uid,
+            time,
+            prefix === "c1t" ? runToken : undefined,
+          ),
+        (error: unknown) =>
+          error instanceof Error && "status" in error && error.status === 403,
+      );
+    }
+  }
 });

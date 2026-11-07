@@ -1106,10 +1106,21 @@ svg {
   background: #e9efed;
   color: #5d7c77;
 }
-.solver-meta > span:nth-child(3) {
+.solver-meta .solver-time {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+.daily-category {
+  display: block;
+  margin-bottom: 14px;
+  color: var(--green);
+  font: 500 22px/1.5 var(--serif);
+  letter-spacing: 0.06em;
+}
+.solver-category {
+  color: var(--green);
+  font-weight: 600;
 }
 .solver-points {
   margin-left: auto;

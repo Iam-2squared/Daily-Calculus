@@ -16,8 +16,11 @@ test("registration, saved points, calendar and ranking survive legacy session-on
   await dialog.getByRole("button", { name: "登録する" }).click();
   await expect(dialog).toHaveCount(0);
   const { problems } = await (await page.request.get("/api/problems")).json();
-  const problem = getProblem(problems[0].id)!;
-  await page.locator(".problem-card").first().click();
+  const basic = problems.find(
+    (problem: { level: string }) => problem.level === "basic",
+  );
+  const problem = getProblem(basic.id)!;
+  await page.locator(".problem-card.basic").click();
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
   await expect(page.locator(".answer-result")).toContainText("正解");
@@ -29,7 +32,7 @@ test("registration, saved points, calendar and ranking survive legacy session-on
   await expect(page.locator(".stat-item").first()).toContainText("1pt");
   await page.reload();
   await expect(page.locator(".stat-item").first()).toContainText("1pt");
-  await page.locator(".problem-card").first().click();
+  await page.locator(".problem-card.basic").click();
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
   await expect(page.locator(".answer-result")).toContainText(

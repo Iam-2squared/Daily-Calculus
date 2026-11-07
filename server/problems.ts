@@ -1,4 +1,11 @@
-import type { Level, PrivateProblem, Problem } from "../shared/types.js";
+import { createHash } from "node:crypto";
+import type {
+  DailyCategory,
+  Level,
+  PrivateProblem,
+  Problem,
+} from "../shared/types.js";
+import { generateBankProblem } from "./problem-bank/index.js";
 
 type Content = Omit<PrivateProblem, "id" | "date" | "level" | "correctIndex">;
 const DAY_MS = 86_400_000;
@@ -367,7 +374,7 @@ function validDate(date: string): boolean {
   );
 }
 
-export function getProblems(date: string): PrivateProblem[] {
+function getLegacyProblems(date: string): PrivateProblem[] {
   if (!validDate(date)) throw new Error("Invalid problem date");
   // Daily deterministic content. No browser timezone or random source affects answers.
   const epoch = Math.floor(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
@@ -391,11 +398,67 @@ export function getProblems(date: string): PrivateProblem[] {
   });
 }
 
+const DAILY_CATEGORY_START = "2026-11-07";
+const DAILY_SLOTS: { category: DailyCategory; code: string }[] = [
+  { category: "differentiation", code: "d" },
+  { category: "integration", code: "i" },
+  { category: "application", code: "a" },
+];
+const DAILY_LEVEL_ORDERS: readonly (readonly Level[])[] = [
+  ["basic", "applied", "advanced"],
+  ["applied", "advanced", "basic"],
+  ["advanced", "basic", "applied"],
+  ["basic", "advanced", "applied"],
+  ["advanced", "applied", "basic"],
+  ["applied", "basic", "advanced"],
+];
+
+export function getProblems(date: string): PrivateProblem[] {
+  if (!validDate(date)) throw new Error("Invalid problem date");
+  if (date < DAILY_CATEGORY_START) return getLegacyProblems(date);
+  const elapsedDays = Math.floor(
+    (Date.parse(`${date}T00:00:00Z`) -
+      Date.parse(`${DAILY_CATEGORY_START}T00:00:00Z`)) /
+      DAY_MS,
+  );
+  const order = DAILY_LEVEL_ORDERS[elapsedDays % DAILY_LEVEL_ORDERS.length];
+  return DAILY_SLOTS.map(({ category, code }, index) => {
+    const level = order[index];
+    const id = `d2:${date}:${code}:${level}`;
+    const seed = createHash("sha256")
+      .update(`daily-calculus:d2:${date}:${code}`)
+      .digest("hex")
+      .slice(0, 16);
+    const problem = generateBankProblem(level, seed, date, id, {
+      subject: category === "application" ? "all" : category,
+      application: category === "application",
+    });
+    return { ...problem, dailyCategory: category };
+  });
+}
+
 export function getProblem(id: string): PrivateProblem | null {
+  if (id.startsWith("d2:")) {
+    const [, date, code, level, ...extra] = id.split(":");
+    if (
+      extra.length ||
+      !validDate(date) ||
+      date < DAILY_CATEGORY_START ||
+      !["d", "i", "a"].includes(code) ||
+      !levels.includes(level as Level)
+    )
+      return null;
+    // The slot's difficulty is part of the dated schedule, not a client choice.
+    return getProblems(date).find((problem) => problem.id === id) ?? null;
+  }
   const [date, level, ...extra] = id.split(":");
   if (extra.length || !validDate(date) || !levels.includes(level as Level))
     return null;
-  return getProblems(date).find((p) => p.level === level) ?? null;
+  // Old cached daily IDs always resolve against their original generator,
+  // including IDs issued for dates on or after the category cutover.
+  return (
+    getLegacyProblems(date).find((problem) => problem.level === level) ?? null
+  );
 }
 
 export function publicProblem(problem: PrivateProblem): Problem {

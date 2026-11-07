@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import type { AnswerResult, Problem, Stats, User } from "../shared/types";
-import { LEVELS } from "../shared/types";
+import { DAILY_CATEGORIES, LEVELS } from "../shared/types";
 import { api, EMPTY_STATS } from "./api";
 import { MathText } from "./components/Math";
 import { ChallengeView } from "./components/ChallengeView";
@@ -35,7 +35,12 @@ import {
 } from "./components/Views";
 
 type Page =
-  "today" | "knowledge" | "challenge" | "ranking" | "archive" | "account";
+  | "today"
+  | "knowledge"
+  | "challenge"
+  | "ranking"
+  | "archive"
+  | "account";
 const NAV = [
   { id: "today", label: "今日の学習", icon: BookOpen },
   { id: "knowledge", label: "微積の基本知識", icon: Leaf },
@@ -72,9 +77,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
-  const [accountAction, setAccountAction] = useState<"logout" | "delete" | null>(
-    null,
-  );
+  const [accountAction, setAccountAction] = useState<
+    "logout" | "delete" | null
+  >(null);
   const statsVersion = useRef(0);
   const [activeProblem, setActiveProblem] = useState<Problem | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -516,10 +521,15 @@ function Dashboard({
                   key={p.id}
                   onClick={() => onSolve(p)}
                 >
+                  {p.dailyCategory && (
+                    <strong className="daily-category">
+                      {DAILY_CATEGORIES[p.dailyCategory]}
+                    </strong>
+                  )}
                   <div className="problem-card-top">
                     <span className="problem-level">
                       <span className="level-dot" />
-                      {meta.name}
+                      <span>難易度：{meta.name}</span>
                     </span>
                     <span className="points-badge">
                       +{meta.points}
@@ -853,7 +863,8 @@ function AccountDeletionModal({
           >
             {busy ? (
               <>
-                <LoaderCircle className="spin" size={18} />削除中
+                <LoaderCircle className="spin" size={18} />
+                削除中
               </>
             ) : (
               label
@@ -924,9 +935,16 @@ function ProblemModal({
         </div>
         <div className="problem-modal-body">
           <div className="solver-meta">
-            <span className={`solver-level ${p.level}`}>{level.name}</span>
+            {p.dailyCategory && (
+              <span className="solver-category">
+                {DAILY_CATEGORIES[p.dailyCategory]}
+              </span>
+            )}
+            <span className={`solver-level ${p.level}`}>
+              難易度：{level.name}
+            </span>
             <span>{p.topic}</span>
-            <span>
+            <span className="solver-time">
               <Clock3 size={13} />
               {p.estimatedMinutes} 分
             </span>
