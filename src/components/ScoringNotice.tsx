@@ -27,8 +27,9 @@ export function ScoringNotice({
   frozenAt,
   awardPaused = false,
   wrongDayBlocked = false,
-  awardPending = false,
   answerCorrect = false,
+  awardDuplicate = false,
+  awardUnavailable = false,
 }: {
   status?: ScoringStatus;
   awardBlocked?: boolean;
@@ -38,7 +39,17 @@ export function ScoringNotice({
   wrongDayBlocked?: boolean;
   awardPending?: boolean;
   answerCorrect?: boolean;
+  awardDuplicate?: boolean;
+  awardUnavailable?: boolean;
 }) {
+  const duplicateNotice = awardDuplicate ? (
+    <p className="scoring-duplicate">同じ問題への再加点はありません。</p>
+  ) : null;
+  const unavailableNotice = awardUnavailable ? (
+    <p className="scoring-unavailable">
+      出題方式を更新しました。新しい問題で挑戦してください。
+    </p>
+  ) : null;
   const wrongDayNotice = wrongDayBlocked ? (
     <div className="scoring-wrong-day">
       <p className="scoring-wrong-day-message">
@@ -46,9 +57,13 @@ export function ScoringNotice({
           ? "正解です。この問題は今日すでに間違えたため、轟は加算されません。"
           : "この問題は今日は加点されません。"}
       </p>
-      <p>翌日（日本時間0:00以降）は、通常の加点条件が適用されます。</p>
+      <p>同じ問題への加点は1回のみです。</p>
     </div>
   ) : null;
+  const recordedNotice =
+    awardPaused || awardBlocked || (wrongDayBlocked && answerCorrect) ? (
+      <p className="scoring-recorded">この問題を解き直しても加点されません。</p>
+    ) : null;
   if (paused || awardPaused) {
     const freezeDate = freezeDateLabel(frozenAt);
     return (
@@ -69,13 +84,19 @@ export function ScoringNotice({
           </p>
         )}
         {wrongDayNotice}
-        {awardPending && !wrongDayBlocked && (
-          <p className="scoring-pending">この問題の轟は未獲得です。</p>
-        )}
+        {recordedNotice}
+        {duplicateNotice}
+        {unavailableNotice}
       </div>
     );
   }
-  if (!status?.locked && !awardBlocked && !wrongDayBlocked && !awardPending)
+  if (
+    !status?.locked &&
+    !awardBlocked &&
+    !wrongDayBlocked &&
+    !awardDuplicate &&
+    !awardUnavailable
+  )
     return null;
 
   const required = status?.requiredCorrectStreak ?? 3;
@@ -90,6 +111,7 @@ export function ScoringNotice({
           <p className="scoring-progress">
             連続正解 {streak} / {required}
           </p>
+          <p>未正解の別々の問題が対象です。</p>
         </>
       )}
       {awardBlocked && (
@@ -98,11 +120,9 @@ export function ScoringNotice({
         </p>
       )}
       {wrongDayNotice}
-      {awardPending && !wrongDayBlocked && (
-        <p className="scoring-pending">
-          この問題の轟は未獲得です。加点条件を満たして正解すると、加点対象になります。
-        </p>
-      )}
+      {recordedNotice}
+      {duplicateNotice}
+      {unavailableNotice}
     </div>
   );
 }

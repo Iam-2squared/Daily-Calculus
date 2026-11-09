@@ -84,6 +84,7 @@ export function generateBankProblemV3(
   date: string,
   id: string,
   options: BankOptions = {},
+  privateShuffleSeed?: string,
 ): PrivateProblem {
   if (!Object.hasOwn(BANK_TEMPLATES_V3, level))
     throw new RangeError("Unknown problem level");
@@ -102,10 +103,12 @@ export function generateBankProblemV3(
   const content = template.build(random);
   // Sampling distractors may consume any number of random values. Position
   // shuffling uses an independent stream and cannot expose that draw count.
-  const shuffleSeed = createHash("sha256")
-    .update(`daily-calculus:v3-choice-shuffle:${seed}:${id}`)
-    .digest("hex")
-    .slice(0, 16);
+  const shuffleSeed =
+    privateShuffleSeed ??
+    createHash("sha256")
+      .update(`daily-calculus:v3-choice-shuffle:${seed}:${id}`)
+      .digest("hex")
+      .slice(0, 16);
   const shuffle = randomFromSeed(shuffleSeed);
   const choices = content.choices.map((text, index) => ({
     text,

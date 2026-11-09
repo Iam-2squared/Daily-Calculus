@@ -64,7 +64,6 @@ export function ChallengeView({
   scoringPaused,
   scoringFrozenAt,
   wrongTodayIds,
-  pendingAwardIds,
   onAnswerAccepted,
 }: {
   user: User | null;
@@ -418,9 +417,6 @@ export function ChallengeView({
   const wrongToday =
     result?.awardWrongDayBlocked ??
     (rewardId ? wrongTodayIds?.includes(rewardId) === true : false);
-  const awardPending =
-    result?.awardPending ??
-    (rewardId ? pendingAwardIds?.includes(rewardId) === true : false);
 
   if (phase === "setup")
     return (
@@ -533,7 +529,7 @@ export function ChallengeView({
           ) : (
             <>
               <p className="challenge-rule">
-                正解すると基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題の加点は初回のみです。
+                加点条件を満たすと、基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題への加点は1回のみです。
               </p>
               <p className="challenge-rule">
                 2問間違えると加点が停止します。未正解の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
@@ -652,9 +648,13 @@ export function ChallengeView({
             <span>{LEVELS[level].name}</span>{" "}
             {currentPaused
               ? "加点停止中"
-              : wrongToday
-                ? "この問題は今日は加点なし"
-                : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
+              : result?.awardUnavailable
+                ? "この問題は加点対象外"
+                : result?.awardDuplicate || result?.alreadySolved
+                  ? "同じ問題への再加点なし"
+                  : wrongToday
+                    ? "この問題は今日は加点なし"
+                    : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
           </p>
           <p className="challenge-run-subject">
             出題範囲：{CHALLENGE_SUBJECTS[subject]}
@@ -685,7 +685,6 @@ export function ChallengeView({
         paused={currentPaused}
         frozenAt={currentFrozenAt}
         wrongDayBlocked={!result && wrongToday}
-        awardPending={!result && awardPending}
       />
       {!user && (
         <p className="challenge-active-note">
@@ -814,24 +813,29 @@ export function ChallengeView({
                     </p>
                   )}
                 </div>
-                {(result.correct || wrongToday) && (
+                {(result.correct ||
+                  wrongToday ||
+                  result.awardDuplicate ||
+                  result.awardUnavailable) && (
                   <ScoringNotice
                     awardBlocked={result.correct && result.awardBlocked}
                     paused={currentPaused}
                     frozenAt={currentFrozenAt}
                     awardPaused={result.correct && currentPaused}
                     wrongDayBlocked={wrongToday}
-                    awardPending={awardPending}
                     answerCorrect={result.correct}
+                    awardDuplicate={result.awardDuplicate}
+                    awardUnavailable={result.awardUnavailable}
                   />
                 )}
                 {result.alreadySolved &&
                   result.pointsEarned === 0 &&
                   !currentPaused &&
-                  !wrongToday &&
-                  !awardPending && (
+                  !result.awardDuplicate &&
+                  !result.awardUnavailable &&
+                  !wrongToday && (
                     <p className="challenge-rule">
-                      正解済みのため、今回の加点はありません。
+                      正解済みのため、解き直しても加点されません。
                     </p>
                   )}
                 <button

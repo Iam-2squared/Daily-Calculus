@@ -5,8 +5,10 @@ import { fileURLToPath } from "node:url";
 import express from "express";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { createApp } from "../../server/app";
-import { generateBankProblem } from "../../server/problem-bank/index";
-import { getProblem } from "../../server/problems";
+import {
+  E2E_CHALLENGE_KEY,
+  resolveTestQuestion,
+} from "../helpers/resolve-challenge";
 import { SqliteStore } from "../../server/store";
 import type {
   AnswerResult,
@@ -55,14 +57,7 @@ async function startChallenge(
 }
 
 async function answerCorrectly(page: Page, problem: Problem, daily = false) {
-  const privateProblem = daily
-    ? getProblem(problem.id)!
-    : generateBankProblem(
-        problem.level,
-        problem.id.split(".")[4],
-        problem.date,
-        problem.id,
-      );
+  const privateProblem = resolveTestQuestion(problem);
   const container = daily
     ? page.getByRole("dialog")
     : page.locator(".challenge-problem");
@@ -127,6 +122,7 @@ test("global pause keeps fresh daily, practice and timed answers at zero with a 
     )
     .run(FROZEN_AT);
   const app = createApp(undefined, {
+    challengeKey: E2E_CHALLENGE_KEY,
     store,
     secureCookies: false,
     now: () => new Date("2026-11-09T05:00:00.000Z"),

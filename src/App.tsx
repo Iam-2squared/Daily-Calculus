@@ -455,9 +455,6 @@ export default function App() {
           wrongToday={stats.wrongTodayIds?.includes(
             activeProblem.rewardId ?? activeProblem.id,
           )}
-          awardPending={stats.pendingAwardIds?.includes(
-            activeProblem.rewardId ?? activeProblem.id,
-          )}
           onAnswerAccepted={recordAnswer}
           onClose={closeProblem}
           onComplete={refreshStats}
@@ -589,9 +586,6 @@ function Dashboard({
               const wrongToday = stats.wrongTodayIds?.includes(
                 p.rewardId ?? p.id,
               );
-              const pendingAward = stats.pendingAwardIds?.includes(
-                p.rewardId ?? p.id,
-              );
               return (
                 <button
                   className={`problem-card ${p.level} ${done ? "solved" : ""}`}
@@ -611,6 +605,8 @@ function Dashboard({
                     <span className="points-badge">
                       {stats.scoringPaused ? (
                         "加点停止中"
+                      ) : done ? (
+                        "加点なし"
                       ) : wrongToday ? (
                         "今日は加点なし"
                       ) : (
@@ -630,9 +626,7 @@ function Dashboard({
                   <h3>{p.title}</h3>
                   <div className="problem-card-bottom">
                     <span>
-                      {pendingAward && !wrongToday && !stats.scoringPaused ? (
-                        <>加点対象（未獲得）</>
-                      ) : done ? (
+                      {done ? (
                         <>
                           <Check size={14} />
                           正解済み
@@ -973,7 +967,6 @@ function ProblemModal({
   scoringPaused,
   scoringFrozenAt,
   wrongToday = false,
-  awardPending: pendingAward = false,
   onAnswerAccepted,
   onClose,
   onComplete,
@@ -1011,7 +1004,6 @@ function ProblemModal({
   const paused = Boolean(scoringPaused || result?.awardPaused);
   const frozenAt = scoringFrozenAt ?? result?.scoringFrozenAt;
   const wrongDayBlocked = result?.awardWrongDayBlocked ?? wrongToday;
-  const awardPending = result?.awardPending ?? pendingAward;
   async function refresh() {
     if (!user || refreshBusy) return;
     setRefreshBusy(true);
@@ -1086,9 +1078,13 @@ function ProblemModal({
             <span className="solver-points">
               {paused
                 ? "加点停止中"
-                : wrongDayBlocked
-                  ? "今日は加点なし"
-                  : `+${formatPointIncome(level.points)} 轟`}
+                : result?.awardUnavailable
+                  ? "加点対象外"
+                  : isSolved || result?.awardDuplicate
+                    ? "正解済み・加点なし"
+                    : wrongDayBlocked
+                      ? "今日は加点なし"
+                      : `+${formatPointIncome(level.points)} 轟`}
             </span>
           </div>
           <h2 id="problem-title">{p.title}</h2>
@@ -1102,7 +1098,6 @@ function ProblemModal({
               paused={paused}
               frozenAt={frozenAt}
               wrongDayBlocked={wrongDayBlocked}
-              awardPending={awardPending}
             />
           )}
           <div
@@ -1165,13 +1160,11 @@ function ProblemModal({
                 {user
                   ? paused
                     ? "現在は加点を停止しています。正解の学習記録は残ります。"
-                    : wrongDayBlocked
-                      ? "この問題は今日は加点されません。正解の学習記録は残ります。"
-                      : awardPending
-                        ? "この問題の轟は未獲得です。加点条件を満たすと加点対象になります。"
-                        : isSolved
-                          ? "この問題は正解済みです。復習しても重複加点されません。"
-                          : "加点条件を満たして正解すると轟が記録されます。"
+                    : isSolved
+                      ? "この問題は正解済みです。復習しても加点されません。"
+                      : wrongDayBlocked
+                        ? "この問題は今日は加点されません。正解の学習記録は残ります。"
+                        : "加点条件を満たして正解すると轟が記録されます。"
                   : "お試しで解けます。学習記録の保存にはログインが必要です。"}
               </p>
             </>
@@ -1204,8 +1197,9 @@ function ProblemModal({
                 frozenAt={frozenAt}
                 awardPaused={result.correct && paused}
                 wrongDayBlocked={wrongDayBlocked}
-                awardPending={awardPending}
                 answerCorrect={result.correct}
+                awardDuplicate={result.awardDuplicate}
+                awardUnavailable={result.awardUnavailable}
               />
               <div className="explanation">
                 <span className="eyebrow">解説</span>
@@ -1230,10 +1224,11 @@ function ProblemModal({
               {result.alreadySolved &&
                 result.pointsEarned === 0 &&
                 !paused &&
-                !wrongDayBlocked &&
-                !awardPending && (
+                !result.awardDuplicate &&
+                !result.awardUnavailable &&
+                !wrongDayBlocked && (
                   <p className="solver-footnote">
-                    記録済みの問題のため、今回の加点はありません。
+                    正解済みのため、解き直しても加点されません。
                   </p>
                 )}
               {refreshFailed && (

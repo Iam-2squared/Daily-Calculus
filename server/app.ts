@@ -15,12 +15,14 @@ import {
   type Store,
 } from "./store.js";
 import { getProblems, getProblem, publicProblem } from "./problems.js";
+import { questionFingerprint } from "./question-identity.js";
 import { addDays, isDateKey, todayJST, weekStartJST } from "../shared/date.js";
 import { LEVELS, type User, type ChallengeMode } from "../shared/types.js";
 import {
   Challenges,
   ChallengeError,
   isChallengeId,
+  isRankedChallengeId,
   validChallengeInput,
   validChallengeSubject,
 } from "./challenges.js";
@@ -546,6 +548,8 @@ export function createApp(databasePath?: string, options: Options = {}) {
           solvedAt: answeredAt.toISOString(),
           date: todayJST(answeredAt),
           correct,
+          contentFingerprint: questionFingerprint(problem),
+          awardEligible: !isChallengeId(id) || isRankedChallengeId(id),
         })
       : {
           pointsEarned: 0,
@@ -553,6 +557,8 @@ export function createApp(databasePath?: string, options: Options = {}) {
           awardPaused: false,
           awardWrongDayBlocked: false,
           awardPending: false,
+          awardDuplicate: false,
+          awardUnavailable: false,
           scoringFrozenAt: (await store.scoringControl()).scoringFrozenAt,
         };
     let creditSyncPending: boolean | undefined;

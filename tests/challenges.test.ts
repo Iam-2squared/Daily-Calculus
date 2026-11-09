@@ -11,6 +11,8 @@ import {
   generateBankProblem,
   generateBankProblemV3,
 } from "../server/problem-bank/index.js";
+import { questionFingerprint } from "../server/question-identity.js";
+import { resolveTestQuestion } from "./helpers/resolve-challenge.js";
 
 const SIGNING_KEY = "test_challenge_key_stable_across_app_instances_123456789";
 async function harness(start = new Date("2026-10-28T05:00:00Z")) {
@@ -98,6 +100,8 @@ test("unlimited practice issues fresh questions beyond the three daily questions
     "advanced",
   ];
   const awards = [];
+  const expectedAwards: number[] = [];
+  const seen = new Set<string>();
   for (const level of levels) {
     const challenge = await h.request(
       "/api/challenges/next",
@@ -106,13 +110,22 @@ test("unlimited practice issues fresh questions beyond the three daily questions
     );
     assert.equal(challenge.status, 200);
     assert.equal(challenge.body.problem.level, level);
-    assert.match(challenge.body.problem.id, /^c3p\./);
+    assert.match(challenge.body.problem.id, /^c4p\./);
     assert.equal(challenge.body.run, undefined);
     assert.equal(challenge.body.serverNow, h.time());
     assert.equal("correctIndex" in challenge.body.problem, false);
     assert.equal("explanation" in challenge.body.problem, false);
     assert.ok(challenge.body.problem.id.length <= 80);
     ids.add(challenge.body.problem.id);
+    const fingerprint = questionFingerprint(challenge.body.problem);
+    expectedAwards.push(
+      seen.has(fingerprint)
+        ? 0
+        : { basic: 1, applied: 3, advanced: 5 }[
+            level as "basic" | "applied" | "advanced"
+          ],
+    );
+    seen.add(fingerprint);
     const body = { choiceIndex: h.choice(challenge.body, userId) };
     const result = await h.request(
       answerPath(challenge.body.problem.id),
@@ -131,15 +144,17 @@ test("unlimited practice issues fresh questions beyond the three daily questions
     assert.equal(duplicate.body.alreadySolved, true);
   }
   assert.equal(ids.size, levels.length);
-  assert.deepEqual(awards, [1, 1, 1, 1, 1, 3, 5]);
+  assert.deepEqual(awards, expectedAwards);
+  assert.ok(seen.size >= 5);
+  const expectedTotal = expectedAwards.reduce((sum, award) => sum + award, 0);
   const stats = (await h.request("/api/stats", undefined, cookie)).body;
-  assert.equal(stats.totalPoints, 13);
+  assert.equal(stats.totalPoints, expectedTotal);
   assert.equal(stats.solvedCount, 7);
   assert.deepEqual(stats.levelCounts, { basic: 5, applied: 1, advanced: 1 });
   assert.equal(
     (await h.request("/api/rankings?period=week", undefined, cookie)).body.me
       .points,
-    13,
+    expectedTotal,
   );
 });
 
@@ -407,6 +422,7 @@ test("subject selection stays fixed across next questions in every difficulty an
   t.after(() => h.close());
   const owner = await h.register();
   let expectedPoints = 0;
+  const seen = new Set<string>();
   for (const level of ["basic", "applied", "advanced"] as const) {
     for (const mode of ["practice", "time-attack"] as const) {
       for (const subject of ["differentiation", "integration"] as const) {
@@ -434,7 +450,11 @@ test("subject selection stays fixed across next questions in every difficulty an
             { choiceIndex: h.choice(challenge.body, owner.userId), runToken },
             owner.cookie,
           );
-          const award = { basic: 1, applied: 3, advanced: 5 }[level];
+          const fingerprint = questionFingerprint(challenge.body.problem);
+          const award = seen.has(fingerprint)
+            ? 0
+            : { basic: 1, applied: 3, advanced: 5 }[level];
+          seen.add(fingerprint);
           assert.equal(result.status, 200);
           assert.equal(result.body.pointsEarned, award);
           expectedPoints += award;
@@ -448,7 +468,7 @@ test("subject selection stays fixed across next questions in every difficulty an
       }
     }
   }
-  assert.equal(expectedPoints, 108);
+  assert.ok(expectedPoints > 0 && expectedPoints <= 108);
   const stats = (await h.request("/api/stats", undefined, owner.cookie)).body;
   assert.equal(stats.totalPoints, expectedPoints);
   assert.equal(stats.solvedCount, 36);
@@ -535,26 +555,22 @@ test("invalid subjects, mid-run subject changes, tampered subject codes and mism
   );
   // A valid signed question still must match its run's selected subject.
   // Construct a server-signed differentiation fixture with the same run nonce.
-  let seed = "";
+  let mismatchedId = "";
   for (let candidate = 0; candidate < 100; candidate++) {
     const value = candidate.toString(16).padStart(16, "0");
+    const parts = challenge.body.problem.id.split(".");
+    parts[4] = value;
+    const payload = parts.slice(0, 6).join(".");
+    const id = `${payload}.${fixtureSign("problem", payload)}`;
     if (
-      generateBankProblemV3(
-        "basic",
-        value,
-        challenge.body.problem.date,
-        "fixture",
-      ).subject === "differentiation"
+      resolveTestQuestion({ ...challenge.body.problem, id }, SIGNING_KEY)
+        .subject === "differentiation"
     ) {
-      seed = value;
+      mismatchedId = id;
       break;
     }
   }
-  assert.ok(seed);
-  const parts = challenge.body.problem.id.split(".");
-  parts[4] = seed;
-  const payload = parts.slice(0, 6).join(".");
-  const mismatchedId = `${payload}.${fixtureSign("problem", payload)}`;
+  assert.ok(mismatchedId);
   assert.equal(
     (
       await h.request(
@@ -619,7 +635,8 @@ test("legacy signed question IDs and r1 runs resolve unchanged and continue as m
       owner.cookie,
     );
     assert.equal(answer.status, 200);
-    assert.equal(answer.body.pointsEarned, 1);
+    assert.equal(answer.body.pointsEarned, 0);
+    assert.equal(answer.body.awardUnavailable, true);
   }
   const next = await h.request(
     "/api/challenges/next",
@@ -736,7 +753,7 @@ test("legacy c1 signed seeds retain exact math and answer order under filtered r
   }
 });
 
-test("legacy c2 signed choices stay exact while new challenges issue c3 IDs", () => {
+test("legacy c2 signed choices stay exact while new challenges issue opaque c4 IDs", () => {
   const signer = new Challenges(SIGNING_KEY),
     time = new Date("2026-11-09T05:00:00Z"),
     uid = 17;
@@ -825,14 +842,9 @@ test("legacy c2 signed choices stay exact while new challenges issue c3 IDs", ()
       );
       assert.match(
         issued.problem.id,
-        mode === "practice" ? /^c3p\./ : /^c3t\./,
+        mode === "practice" ? /^c4p\./ : /^c4t\./,
       );
-      const expected = generateBankProblemV3(
-        snapshot.level,
-        issued.problem.id.split(".")[4],
-        date,
-        issued.problem.id,
-      );
+      const expected = resolveTestQuestion(issued.problem, SIGNING_KEY);
       assert.deepEqual(
         signer.resolve(issued.problem.id, uid, time, issued.run?.token),
         expected,

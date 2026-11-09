@@ -1,7 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
 import type { ChallengeResponse, Problem } from "../../shared/types";
-import { generatePracticeProblem } from "../../server/practice-problems";
-import { generateBankProblem } from "../../server/problem-bank/index";
+import {
+  freshTestChallenge,
+  markQuestionAttempted,
+  resolveTestQuestion,
+} from "../helpers/resolve-challenge";
 
 async function begin(page: Page): Promise<ChallengeResponse> {
   const response = page.waitForResponse(
@@ -13,22 +16,14 @@ async function begin(page: Page): Promise<ChallengeResponse> {
   return (await response).json();
 }
 async function correctAnswer(page: Page, problem: Problem) {
-  const seed = problem.id.split(".")[4];
-  const generate = /^c[23][pt]\./.test(problem.id)
-    ? generateBankProblem
-    : generatePracticeProblem;
-  const privateProblem = generate(
-    problem.level,
-    seed,
-    problem.date,
-    problem.id,
-  );
+  const privateProblem = resolveTestQuestion(problem);
   await page
     .locator(".challenge-problem .answer-choice")
     .nth(privateProblem.correctIndex)
     .click();
   await page.getByRole("button", { name: "回答する", exact: true }).click();
   await expect(page.locator(".challenge-result-label")).toContainText("正解");
+  markQuestionAttempted(page, problem);
   await expect(
     page.getByRole("button", { name: "次の問題", exact: true }),
   ).toBeEnabled();
@@ -74,6 +69,7 @@ test("mobile unlimited practice saves more than three questions and colors the c
   let data = await begin(page);
   const ids = new Set<string>();
   for (let i = 0; i < 5; i++) {
+    data = await freshTestChallenge(page, data);
     expect(ids.has(data.problem.id)).toBe(false);
     ids.add(data.problem.id);
     await correctAnswer(page, data.problem);

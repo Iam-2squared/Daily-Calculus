@@ -19,7 +19,11 @@ const DIFFICULTIES: Record<Level, { label: string; points: number }> = {
   advanced: { label: "難関", points: 5 },
 };
 
-async function assertDailyCards(page: Page, problems: Problem[]) {
+async function assertDailyCards(
+  page: Page,
+  problems: Problem[],
+  solved = false,
+) {
   const cards = page.locator(".problem-card");
   await expect(cards).toHaveCount(3);
   await expect(cards.locator(".daily-category")).toHaveText([
@@ -35,7 +39,9 @@ async function assertDailyCards(page: Page, problems: Problem[]) {
       `難易度：${difficulty.label}`,
     );
     await expect(card.locator(".points-badge")).toHaveText(
-      `+${(difficulty.points * 10_000).toLocaleString("ja-JP")} 轟`,
+      solved
+        ? "加点なし"
+        : `+${(difficulty.points * 10_000).toLocaleString("ja-JP")} 轟`,
     );
   }
 }
@@ -167,7 +173,7 @@ test("solving the three daily categories earns nine points once and persists aft
   expect(duplicate.result.pointsEarned).toBe(0);
   expect(duplicate.result.alreadySolved).toBe(true);
   await expect(duplicate.dialog.locator(".answer-result")).toContainText(
-    "今回の加点はありません",
+    "同じ問題への再加点はありません。",
   );
   await duplicate.dialog
     .getByRole("button", { name: "閉じる", exact: true })
@@ -187,7 +193,7 @@ test("solving the three daily categories earns nine points once and persists aft
   await expect(page.locator(".problem-card.solved")).toHaveCount(3);
   await expect(page.locator(".calendar-day.has-points")).toHaveCount(1);
   await expect(page.locator(".calendar-day.has-points")).toContainText("9万轟");
-  await assertDailyCards(page, daily.problems);
+  await assertDailyCards(page, daily.problems, true);
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
     expect(

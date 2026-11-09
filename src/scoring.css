@@ -37,7 +37,9 @@
   font-weight: 500;
 }
 .scoring-notice > * + .scoring-wrong-day,
-.scoring-notice > * + .scoring-pending {
+.scoring-notice .scoring-recorded,
+.scoring-notice > * + .scoring-duplicate,
+.scoring-notice > * + .scoring-unavailable {
   margin-top: 8px;
 }
 .daily-award-rule {

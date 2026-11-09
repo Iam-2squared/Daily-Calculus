@@ -236,7 +236,7 @@ test("correct answers award difficulty points once, while a question missed toda
     { date: "2026-10-28", count: 3, points: 8 },
   ]);
   assert.deepEqual(stats.wrongTodayIds, [basic.rewardId ?? basic.id]);
-  assert.deepEqual(stats.pendingAwardIds, [basic.rewardId ?? basic.id]);
+  assert.deepEqual(stats.pendingAwardIds, []);
 });
 
 test("leaderboard caps display at 25, returns own rank beyond the cap and separates weekly points", async (t) => {

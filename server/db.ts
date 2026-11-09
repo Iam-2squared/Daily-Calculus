@@ -1,6 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import {
+  questionFingerprint,
+  regenerateHistoricalProblem,
+} from "./question-identity.js";
 
 function allowZeroPointSolves(db: DatabaseSync) {
   const table = db
@@ -94,6 +98,14 @@ export function openDatabase(path: string) {
     );
     CREATE INDEX IF NOT EXISTS solves_date ON solves(solved_date, user_id);
   `);
+  const awardGuard = db
+    .prepare(
+      "SELECT sql FROM sqlite_schema WHERE type='trigger' AND name='solve_award_upgrade_guard'",
+    )
+    .get();
+  const replaceAwardGuard =
+    awardGuard &&
+    !String(awardGuard.sql).includes("Solve award receipts are final");
   allowZeroPointSolves(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS scoring_voids (
@@ -137,6 +149,22 @@ export function openDatabase(path: string) {
       CHECK(pending=0 OR award_date IS NULL)
     );
     CREATE INDEX IF NOT EXISTS solve_awards_date ON solve_awards(award_date,user_id);
+    CREATE TABLE IF NOT EXISTS problem_fingerprints (
+      problem_id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*')
+    );
+    CREATE TABLE IF NOT EXISTS content_receipts (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+      first_problem_id TEXT NOT NULL REFERENCES problem_fingerprints(problem_id),
+      first_seen_date TEXT NOT NULL,
+      PRIMARY KEY(user_id,fingerprint)
+    );
+    CREATE TABLE IF NOT EXISTS content_guard (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1))
+    );
+    INSERT INTO content_guard(singleton,enabled) VALUES(1,0) ON CONFLICT(singleton) DO NOTHING;
   `);
   // The source watermark is independent of account/solve deletion. Only the
   // opaque, never-reused numeric ID and earned total survive account deletion.
@@ -168,23 +196,12 @@ export function openDatabase(path: string) {
         WHERE user_id=NEW.user_id AND deleted=0;
       SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
     END;
+    DROP TRIGGER IF EXISTS lifetime_solve_upgrade;
+    ${replaceAwardGuard ? "DROP TRIGGER solve_award_upgrade_guard;" : ""}
     CREATE TRIGGER IF NOT EXISTS solve_award_upgrade_guard BEFORE UPDATE OF points ON solves
-    WHEN NEW.points<>OLD.points AND NOT (
-      OLD.points=0 AND NEW.points=CASE OLD.level WHEN 'basic' THEN 1 WHEN 'applied' THEN 3 WHEN 'advanced' THEN 5 END
-      AND NEW.user_id=OLD.user_id AND NEW.problem_id=OLD.problem_id AND NEW.level=OLD.level
-      AND NEW.solved_at=OLD.solved_at AND NEW.solved_date=OLD.solved_date
-      AND EXISTS(SELECT 1 FROM solve_awards a WHERE a.user_id=OLD.user_id AND a.problem_id=OLD.problem_id AND a.pending=1)
-      AND NOT EXISTS(SELECT 1 FROM scoring_voids v WHERE v.user_id=OLD.user_id AND v.problem_id=OLD.problem_id)
-    )
+    WHEN NEW.points<>OLD.points
     BEGIN
-      SELECT RAISE(ABORT,'Invalid pending award transition');
-    END;
-    CREATE TRIGGER IF NOT EXISTS lifetime_solve_upgrade AFTER UPDATE OF points ON solves
-    WHEN NEW.points>OLD.points
-    BEGIN
-      UPDATE lifetime_totals SET total_points=total_points+(NEW.points-OLD.points)
-        WHERE user_id=NEW.user_id AND deleted=0;
-      SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
+      SELECT RAISE(ABORT,'Solve award receipts are final');
     END;
     CREATE TRIGGER IF NOT EXISTS lifetime_user_delete AFTER DELETE ON users
     BEGIN
@@ -192,6 +209,53 @@ export function openDatabase(path: string) {
     END;
     COMMIT;
   `);
+  // Existing correct and wrong attempts reserve their mathematical identity.
+  // Reconstruct trusted legacy IDs directly, without expired timed-run tokens.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const known = db.prepare(
+      "SELECT fingerprint FROM problem_fingerprints WHERE problem_id=?",
+    );
+    const insertMapping = db.prepare(
+      "INSERT INTO problem_fingerprints(problem_id,fingerprint) VALUES(?,?) ON CONFLICT(problem_id) DO NOTHING",
+    );
+    const insertClaim = db.prepare(`
+      INSERT INTO content_receipts(user_id,fingerprint,first_problem_id,first_seen_date) VALUES(?,?,?,?)
+      ON CONFLICT(user_id,fingerprint) DO UPDATE SET first_problem_id=excluded.first_problem_id,first_seen_date=excluded.first_seen_date
+      WHERE excluded.first_seen_date<content_receipts.first_seen_date
+        OR (excluded.first_seen_date=content_receipts.first_seen_date AND excluded.first_problem_id<content_receipts.first_problem_id)
+    `);
+    for (const row of db
+      .prepare(
+        `
+      SELECT user_id,problem_id,solved_date AS first_date FROM solves
+      UNION ALL SELECT user_id,problem_id,wrong_date AS first_date FROM wrong_attempts
+      ORDER BY first_date,problem_id
+    `,
+      )
+      .all()) {
+      const id = String(row.problem_id);
+      let fingerprint = known.get(id)?.fingerprint as string | undefined;
+      if (!fingerprint) {
+        const problem = regenerateHistoricalProblem(id);
+        // Hand-entered, non-question IDs from older local fixtures have no
+        // recoverable mathematics. They retain their original final receipt.
+        if (!problem) continue;
+        fingerprint = questionFingerprint(problem);
+        insertMapping.run(id, fingerprint);
+      }
+      insertClaim.run(row.user_id, fingerprint, id, row.first_date);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* Preserve the original identity migration error. */
+    }
+    db.close();
+    throw error;
+  }
   return db;
 }
 export type Database = ReturnType<typeof openDatabase>;

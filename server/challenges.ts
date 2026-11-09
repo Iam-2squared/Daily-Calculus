@@ -59,7 +59,10 @@ const expired = () =>
     "制限時間が終了しました。結果を確認して、もう一度挑戦できます。",
   );
 export function isChallengeId(id: string): boolean {
-  return /^c[123][pt]\./.test(id);
+  return /^c[1234][pt]\./.test(id);
+}
+export function isRankedChallengeId(id: string): boolean {
+  return /^c4[pt]\./.test(id);
 }
 export function validChallengeInput(
   level: unknown,
@@ -124,6 +127,28 @@ export class Challenges {
       !timingSafeEqual(expected, supplied)
     )
       throw invalid();
+  }
+  private secureProblem(
+    level: Level,
+    date: string,
+    id: string,
+    payload: string,
+  ): PrivateProblem {
+    // The ID contains only an opaque nonce. Neither the mathematical content
+    // seed nor the answer-position seed can be reconstructed from public data.
+    const derive = (domain: "content" | "shuffle") =>
+      createHmac("sha256", this.signingKey)
+        .update(`daily-calculus:c4:${domain}:${payload}`)
+        .digest("hex")
+        .slice(0, 16);
+    return generateBankProblemV3(
+      level,
+      derive("content"),
+      date,
+      id,
+      {},
+      derive("shuffle"),
+    );
   }
   private run(
     token: unknown,
@@ -193,17 +218,17 @@ export class Challenges {
     const date = todayJST(now);
     let problem: PrivateProblem | undefined;
     for (let attempt = 0; attempt < 128; attempt++) {
-      const seed = randomBytes(8).toString("hex");
+      const nonce = randomBytes(8).toString("hex");
       const payload = [
-        mode === "practice" ? "c3p" : "c3t",
+        mode === "practice" ? "c4p" : "c4t",
         LEVEL_CODE[level],
         encodeDate(date),
         userId.toString(36),
-        seed,
+        nonce,
         run?.nonce || "-",
       ].join(".");
       const id = `${payload}.${this.sign("problem", payload)}`;
-      const candidate = generateBankProblemV3(level, seed, date, id);
+      const candidate = this.secureProblem(level, date, id, payload);
       if (subject === "all" || candidate.subject === subject) {
         problem = candidate;
         break;
@@ -238,7 +263,9 @@ export class Challenges {
     const parts = id.split(".");
     if (
       parts.length !== 7 ||
-      !["c1p", "c1t", "c2p", "c2t", "c3p", "c3t"].includes(parts[0]) ||
+      !["c1p", "c1t", "c2p", "c2t", "c3p", "c3t", "c4p", "c4t"].includes(
+        parts[0],
+      ) ||
       !/^[a-f0-9]{16}$/.test(parts[4])
     )
       throw invalid();
@@ -249,11 +276,13 @@ export class Challenges {
     const date = decodeDate(parts[2]);
     const today = todayJST(now);
     if (date > today || date < addDays(today, -365)) throw invalid();
-    const problem = parts[0].startsWith("c3")
-      ? generateBankProblemV3(level, parts[4], date, id)
-      : parts[0].startsWith("c2")
-        ? generateBankProblem(level, parts[4], date, id)
-        : generatePracticeProblem(level, parts[4], date, id);
+    const problem = parts[0].startsWith("c4")
+      ? this.secureProblem(level, date, id, parts.slice(0, 6).join("."))
+      : parts[0].startsWith("c3")
+        ? generateBankProblemV3(level, parts[4], date, id)
+        : parts[0].startsWith("c2")
+          ? generateBankProblem(level, parts[4], date, id)
+          : generatePracticeProblem(level, parts[4], date, id);
     if (parts[0].endsWith("t")) {
       const run = this.run(runToken, userId, level, now.getTime());
       if (

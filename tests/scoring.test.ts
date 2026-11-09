@@ -6,6 +6,7 @@ import { SqliteStore } from "../server/store.js";
 import { createApp } from "../server/app.js";
 import { getProblems } from "../server/problems.js";
 import { Challenges } from "../server/challenges.js";
+import { questionFingerprint } from "../server/question-identity.js";
 import type { Activity, Level, ScoringStatus } from "../shared/types.js";
 
 const TODAY = "2026-11-09";
@@ -388,7 +389,13 @@ test("the API shares recovery across daily, practice, archive and timed answers,
     ).body.scoring,
     state(2),
   );
-  const archive = getProblems("2026-11-08")[0];
+  const seen = new Set([
+    questionFingerprint(daily),
+    questionFingerprint(privatePractice),
+  ]);
+  const archive = getProblems("2026-11-08").find(
+    (problem) => !seen.has(questionFingerprint(problem)),
+  )!;
   const first = await request(
     path(archive.id),
     { choiceIndex: archive.correctIndex },
@@ -396,25 +403,46 @@ test("the API shares recovery across daily, practice, archive and timed answers,
   );
   assert.equal(first.body.awardBlocked, true);
   assert.deepEqual(first.body.scoring, state(2, 1));
-  const second = await request(
+  seen.add(questionFingerprint(archive));
+  const duplicate = await request(
     path(daily.id),
     { choiceIndex: daily.correctIndex },
     cookie,
   );
-  assert.equal(second.body.awardBlocked, true);
-  assert.deepEqual(second.body.scoring, state(2, 2));
-  assert.equal(syncCalls, 0);
-  const timed = await request(
-    "/api/challenges/start",
-    { level: "applied", mode: "time-attack" },
+  assert.equal(duplicate.body.awardDuplicate, true);
+  assert.equal(duplicate.body.pointsEarned, 0);
+  assert.deepEqual(duplicate.body.scoring, state(2, 1));
+  const freshDaily = getProblems(TODAY).find(
+    (problem) => !seen.has(questionFingerprint(problem)),
+  )!;
+  const second = await request(
+    path(freshDaily.id),
+    { choiceIndex: freshDaily.correctIndex },
     cookie,
   );
-  const privateTimed = signer.resolve(
-    timed.body.problem.id,
-    userId,
-    new Date(`${TODAY}T05:00:00Z`),
-    timed.body.run.token,
-  );
+  assert.equal(second.body.awardBlocked, true);
+  assert.deepEqual(second.body.scoring, state(2, 2));
+  seen.add(questionFingerprint(freshDaily));
+  assert.equal(syncCalls, 0);
+  async function freshTimedQuestion() {
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const issued = await request(
+        "/api/challenges/start",
+        { level: "applied", mode: "time-attack" },
+        cookie,
+      );
+      const problem = signer.resolve(
+        issued.body.problem.id,
+        userId,
+        new Date(`${TODAY}T05:00:00Z`),
+        issued.body.run.token,
+      );
+      if (!seen.has(questionFingerprint(problem)))
+        return { timed: issued, privateTimed: problem };
+    }
+    throw new Error("No unseen timed question was issued.");
+  }
+  const { timed, privateTimed } = await freshTimedQuestion();
   const third = await request(
     path(privateTimed.id),
     { choiceIndex: privateTimed.correctIndex, runToken: timed.body.run.token },
@@ -450,10 +478,10 @@ test("the API shares recovery across daily, practice, archive and timed answers,
   const stats = (await request("/api/stats", undefined, cookie)).body;
   assert.deepEqual(stats.scoring, state(0));
   assert.equal(stats.totalPoints, 3);
-  assert.equal(stats.solvedCount, 3);
+  assert.equal(stats.solvedCount, 4);
   assert.deepEqual(
     stats.activity.map((day: Activity) => ({ ...day })),
-    [{ date: TODAY, count: 3, points: 3 }],
+    [{ date: TODAY, count: 4, points: 3 }],
   );
   assert.equal(
     (await app.locals.store.lifetimeTotals([userId]))[0].totalPoints,

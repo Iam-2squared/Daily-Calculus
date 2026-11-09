@@ -32,6 +32,8 @@ export interface SolveInput {
   solvedAt: string;
   date: string;
   correct: boolean;
+  contentFingerprint?: string;
+  awardEligible?: boolean;
 }
 export interface SolveRecord {
   pointsEarned: number;
@@ -41,6 +43,8 @@ export interface SolveRecord {
   awardPaused: boolean;
   awardWrongDayBlocked: boolean;
   awardPending: boolean;
+  awardDuplicate: boolean;
+  awardUnavailable: boolean;
   scoringFrozenAt: string | null;
 }
 export interface ScoringControl {
@@ -251,8 +255,70 @@ export class SqliteStore implements Store {
       const alreadySolved = !!receipt;
       if (receipt && receipt.level !== input.level)
         throw new Error("Invalid problem level.");
-      let awardPending = Number(receipt?.pending || 0) === 1;
-      if (!input.correct && (!receipt || awardPending)) {
+      const mapped = this.db
+        .prepare(
+          "SELECT fingerprint FROM problem_fingerprints WHERE problem_id=?",
+        )
+        .get(input.problemId);
+      const providedFingerprint =
+        typeof input.contentFingerprint === "string" &&
+        /^[0-9a-f]{64}$/.test(input.contentFingerprint)
+          ? input.contentFingerprint
+          : null;
+      if (
+        mapped &&
+        providedFingerprint &&
+        mapped.fingerprint !== providedFingerprint
+      )
+        throw new Error("Question identity changed.");
+      const fingerprint = providedFingerprint || mapped?.fingerprint || null;
+      const guardEnabled =
+        this.db
+          .prepare("SELECT enabled FROM content_guard WHERE singleton=1")
+          .get()?.enabled === 1;
+      const awardUnavailable =
+        input.awardEligible === false ||
+        /^c[123][pt]\./.test(input.problemId) ||
+        (guardEnabled && !fingerprint);
+      if (guardEnabled && !fingerprint) {
+        // Even the default account-state insertion above must not survive an
+        // unrecognized old payload after the content guard is enabled.
+        this.db.exec("ROLLBACK");
+        return {
+          pointsEarned: 0,
+          alreadySolved,
+          scoring: scoringStatus(mistakes, correctStreak),
+          awardBlocked: false,
+          awardPaused: false,
+          awardWrongDayBlocked: false,
+          awardPending: false,
+          awardDuplicate: false,
+          awardUnavailable: true,
+          scoringFrozenAt: control.scoringFrozenAt,
+        };
+      }
+      if (providedFingerprint && !mapped)
+        this.db
+          .prepare(
+            "INSERT INTO problem_fingerprints(problem_id,fingerprint) VALUES(?,?)",
+          )
+          .run(input.problemId, providedFingerprint);
+      const awardDuplicate = !!(
+        fingerprint &&
+        this.db
+          .prepare(
+            "SELECT 1 FROM content_receipts WHERE user_id=? AND fingerprint=?",
+          )
+          .get(input.userId, fingerprint)
+      );
+      if (fingerprint && !awardDuplicate)
+        this.db
+          .prepare(
+            "INSERT INTO content_receipts(user_id,fingerprint,first_problem_id,first_seen_date) VALUES(?,?,?,?)",
+          )
+          .run(input.userId, fingerprint, input.problemId, input.date);
+      const awardPending = false;
+      if (!input.correct && !receipt) {
         this.db
           .prepare(
             "INSERT INTO wrong_attempts(user_id,problem_id,wrong_date) VALUES(?,?,?) ON CONFLICT(user_id,problem_id,wrong_date) DO NOTHING",
@@ -261,25 +327,29 @@ export class SqliteStore implements Store {
       }
       const wrongToday = !!this.db
         .prepare(
-          "SELECT 1 FROM wrong_attempts WHERE user_id=? AND problem_id=? AND wrong_date=?",
+          "SELECT 1 FROM wrong_attempts w LEFT JOIN problem_fingerprints f ON f.problem_id=w.problem_id WHERE w.user_id=? AND w.wrong_date=? AND (w.problem_id=? OR f.fingerprint=?)",
         )
-        .get(input.userId, input.problemId, input.date);
+        .get(input.userId, input.date, input.problemId, fingerprint);
       let pointsEarned = 0;
       let awardBlocked = false;
       let awardPaused = false;
       if (!alreadySolved) {
         if (!input.correct) {
-          mistakes = Math.min(2, mistakes + 1);
-          correctStreak = 0;
+          if (!awardDuplicate && !awardUnavailable) {
+            mistakes = Math.min(2, mistakes + 1);
+            correctStreak = 0;
+          }
         } else {
-          if (mistakes === 2 && correctStreak < 2) {
-            correctStreak++;
-            awardBlocked = true;
-          } else {
-            pointsEarned = expectedPoints;
-            if (mistakes === 2) {
-              mistakes = 0;
-              correctStreak = 0;
+          if (!awardDuplicate && !awardUnavailable) {
+            if (mistakes === 2 && correctStreak < 2) {
+              correctStreak++;
+              awardBlocked = true;
+            } else {
+              pointsEarned = expectedPoints;
+              if (mistakes === 2) {
+                mistakes = 0;
+                correctStreak = 0;
+              }
             }
           }
           if (control.scoringPaused) {
@@ -287,9 +357,8 @@ export class SqliteStore implements Store {
             awardPaused = true;
           }
           if (wrongToday) pointsEarned = 0;
-          // Wrong-day suppression alone is temporary, including when recovery
-          // also blocks this first correct answer. Paused receipts stay final.
-          awardPending = wrongToday && !control.scoringPaused;
+          // Every correct answer creates a final receipt. A zero award can
+          // never be upgraded by replaying the question on another day.
           this.db
             .prepare(
               "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES(?,?,?,?,?,?)",
@@ -319,40 +388,6 @@ export class SqliteStore implements Store {
             "UPDATE scoring_state SET mistakes=?,correct_streak=? WHERE user_id=?",
           )
           .run(mistakes, correctStreak, input.userId);
-      } else if (awardPending && input.correct) {
-        // A replay never advances or resets the account-wide recovery state.
-        // Only explicitly pending wrong-day receipts may gain a later award.
-        awardBlocked = mistakes === 2;
-        awardPaused = control.scoringPaused;
-        const voided = !!this.db
-          .prepare(
-            "SELECT 1 FROM scoring_voids WHERE user_id=? AND problem_id=?",
-          )
-          .get(input.userId, input.problemId);
-        if (
-          input.date > String(receipt!.solved_date) &&
-          !wrongToday &&
-          !awardBlocked &&
-          !awardPaused &&
-          !voided
-        ) {
-          const changed = this.db
-            .prepare(
-              "UPDATE solves SET points=? WHERE user_id=? AND problem_id=? AND points=0",
-            )
-            .run(expectedPoints, input.userId, input.problemId);
-          if (changed.changes !== 1)
-            throw new Error("Pending award receipt changed.");
-          const metadata = this.db
-            .prepare(
-              "UPDATE solve_awards SET pending=0,award_date=?,awarded_at=? WHERE user_id=? AND problem_id=? AND pending=1",
-            )
-            .run(input.date, input.solvedAt, input.userId, input.problemId);
-          if (metadata.changes !== 1)
-            throw new Error("Pending award metadata changed.");
-          pointsEarned = expectedPoints;
-          awardPending = false;
-        }
       }
       const result = {
         pointsEarned,
@@ -362,6 +397,8 @@ export class SqliteStore implements Store {
         awardPaused,
         awardWrongDayBlocked: wrongToday,
         awardPending,
+        awardDuplicate,
+        awardUnavailable,
         scoringFrozenAt: control.scoringFrozenAt,
       };
       this.db.exec("COMMIT");
@@ -428,16 +465,18 @@ export class SqliteStore implements Store {
       .map((row) => String(row.problem_id));
     const wrongTodayIds = this.db
       .prepare(
-        "SELECT problem_id FROM wrong_attempts WHERE user_id=? AND wrong_date=? ORDER BY problem_id",
+        `WITH own_ids AS (
+          SELECT problem_id FROM solves WHERE user_id=? UNION SELECT problem_id FROM wrong_attempts WHERE user_id=?
+        ), today_wrong AS (
+          SELECT w.problem_id,f.fingerprint FROM wrong_attempts w
+          LEFT JOIN problem_fingerprints f ON f.problem_id=w.problem_id WHERE w.user_id=? AND w.wrong_date=?
+        ) SELECT problem_id FROM today_wrong UNION SELECT o.problem_id FROM own_ids o
+          JOIN problem_fingerprints f ON f.problem_id=o.problem_id
+          WHERE f.fingerprint IN (SELECT fingerprint FROM today_wrong) ORDER BY problem_id`,
       )
-      .all(userId, today)
+      .all(userId, userId, userId, today)
       .map((row) => String(row.problem_id));
-    const pendingAwardIds = this.db
-      .prepare(
-        "SELECT a.problem_id FROM solve_awards a JOIN solves s ON s.user_id=a.user_id AND s.problem_id=a.problem_id WHERE a.user_id=? AND a.pending=1 AND s.points=0 ORDER BY a.problem_id",
-      )
-      .all(userId)
-      .map((row) => String(row.problem_id));
+    const pendingAwardIds: string[] = [];
     const levelCounts = { basic: 0, applied: 0, advanced: 0 };
     for (const row of this.db
       .prepare(

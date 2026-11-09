@@ -247,7 +247,7 @@ export function RankingView({
               <p>
                 {scoringPaused
                   ? "まだ順位はありません。現在は加点を停止しています。"
-                  : "まだ順位はありません。問題に正解すると轟が加算されます。"}
+                  : "まだ順位はありません。加点条件を満たした正解がランキングに反映されます。"}
               </p>
             </div>
           )}
@@ -777,9 +777,11 @@ export function ArchiveView({
                     {LEVELS[p.level].name}
                     {!scoringPaused && (
                       <small>
-                        {stats.wrongTodayIds?.includes(p.rewardId ?? p.id)
-                          ? "今日は加点なし"
-                          : `+${formatPointIncome(LEVELS[p.level].points)}轟`}
+                        {stats.solvedIds.includes(p.rewardId ?? p.id)
+                          ? "加点なし"
+                          : stats.wrongTodayIds?.includes(p.rewardId ?? p.id)
+                            ? "今日は加点なし"
+                            : `+${formatPointIncome(LEVELS[p.level].points)}轟`}
                       </small>
                     )}
                   </span>
@@ -803,11 +805,7 @@ export function ArchiveView({
                         : ""
                     }
                   >
-                    {stats.pendingAwardIds?.includes(p.rewardId ?? p.id) &&
-                    !stats.wrongTodayIds?.includes(p.rewardId ?? p.id) &&
-                    !scoringPaused ? (
-                      <>加点対象（未獲得）</>
-                    ) : stats.solvedIds.includes(p.rewardId ?? p.id) ? (
+                    {stats.solvedIds.includes(p.rewardId ?? p.id) ? (
                       <>
                         <CheckCircle2 size={15} /> 正解済み
                       </>

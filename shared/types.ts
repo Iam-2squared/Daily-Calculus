@@ -68,6 +68,8 @@ export interface AnswerResult {
   awardPaused?: boolean;
   awardWrongDayBlocked?: boolean;
   awardPending?: boolean;
+  awardDuplicate?: boolean;
+  awardUnavailable?: boolean;
   scoringFrozenAt?: string | null;
 }
 export interface ScoringStatus {

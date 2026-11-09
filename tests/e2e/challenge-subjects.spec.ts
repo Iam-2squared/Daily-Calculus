@@ -6,8 +6,7 @@ import type {
   Level,
   Problem,
 } from "../../shared/types";
-import { generatePracticeProblem } from "../../server/practice-problems";
-import { generateBankProblem } from "../../server/problem-bank/index";
+import { resolveTestQuestion } from "../helpers/resolve-challenge";
 
 async function issue(
   page: Page,
@@ -34,15 +33,7 @@ async function issue(
 }
 
 async function correctAnswer(page: Page, problem: Problem) {
-  const generate = /^c[23][pt]\./.test(problem.id)
-    ? generateBankProblem
-    : generatePracticeProblem;
-  const privateProblem = generate(
-    problem.level,
-    problem.id.split(".")[4],
-    problem.date,
-    problem.id,
-  );
+  const privateProblem = resolveTestQuestion(problem);
   await page
     .locator(".challenge-problem .answer-choice")
     .nth(privateProblem.correctIndex)

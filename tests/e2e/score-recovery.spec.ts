@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { generateBankProblem } from "../../server/problem-bank/index";
-import { generatePracticeProblem } from "../../server/practice-problems";
-import { getProblem } from "../../server/problems";
+import {
+  freshTestChallenge,
+  markQuestionAttempted,
+  resolveTestQuestion,
+} from "../helpers/resolve-challenge";
 import type {
   AnswerResult,
   ChallengeResponse,
@@ -55,7 +57,10 @@ async function issueChallenge(
   await page.getByRole("button", { name: buttonName, exact: true }).click();
   const response = await responsePromise;
   expect(response.ok()).toBe(true);
-  const data = (await response.json()) as ChallengeResponse;
+  const data = await freshTestChallenge(
+    page,
+    (await response.json()) as ChallengeResponse,
+  );
   await expect(page.locator(".challenge-problem h2")).toHaveText(
     data.problem.title,
   );
@@ -64,20 +69,7 @@ async function issueChallenge(
 }
 
 function correctIndex(problem: Problem) {
-  if (/^c[123][pt]\./.test(problem.id)) {
-    const generate = /^c[23]/.test(problem.id)
-      ? generateBankProblem
-      : generatePracticeProblem;
-    return generate(
-      problem.level,
-      problem.id.split(".")[4],
-      problem.date,
-      problem.id,
-    ).correctIndex;
-  }
-  const privateProblem = getProblem(problem.id);
-  expect(privateProblem).not.toBeNull();
-  return privateProblem!.correctIndex;
+  return resolveTestQuestion(problem).correctIndex;
 }
 
 async function answer(
@@ -110,6 +102,7 @@ async function answer(
   const response = await responsePromise;
   expect(response.ok()).toBe(true);
   const result = (await response.json()) as AnswerResult;
+  markQuestionAttempted(page, problem);
   expect(result.correct).toBe(correct);
   await expect(
     container.locator(
@@ -165,6 +158,9 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     const applied = daily.problems.find(
       (problem) => problem.level === "applied",
     )!;
+    const advanced = daily.problems.find(
+      (problem) => problem.level === "advanced",
+    )!;
     const dashboard = page.locator(".dashboard");
     const challenge = page.locator(".challenge-view");
     const nav = page.locator(".mobile-bottom-nav");
@@ -202,7 +198,22 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     await nav.getByRole("button", { name: "今日の学習", exact: true }).click();
     await assertNotice(dashboard, 0);
 
-    const firstCorrect = await answer(page, basic, true, true);
+    // A previously failed question remains uncredited and cannot advance the
+    // recovery streak, even when its first correct learning receipt is saved.
+    const correctedMistake = await answer(page, basic, true, true);
+    expect(correctedMistake.result).toMatchObject({
+      pointsEarned: 0,
+      alreadySolved: false,
+      awardDuplicate: true,
+      scoring: scoring(2, 0, true),
+    });
+    await assertNotice(correctedMistake.container, 0);
+    await closeDaily(correctedMistake.container);
+    const correctedStats = await assertState(page, scoring(2, 0, true));
+    expect(correctedStats.solvedCount).toBe(1);
+    expect(correctedStats.totalPoints).toBe(0);
+
+    const firstCorrect = await answer(page, advanced, true, true);
     expect(firstCorrect.result).toMatchObject({
       pointsEarned: 0,
       alreadySolved: false,
@@ -216,13 +227,13 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     await closeDaily(firstCorrect.container);
     await page.reload();
     await assertNotice(dashboard, 1);
-    await expect(page.locator(".stat-item").nth(2)).toContainText("1問");
+    await expect(page.locator(".stat-item").nth(2)).toContainText("2問");
     await expect(page.locator(".selected-day-detail")).toContainText(
-      "1 問に正解",
+      "2 問に正解",
     );
     await expect(page.locator(".calendar-day.today")).toHaveAttribute(
       "aria-label",
-      /1問正解、0轟/,
+      /2問正解、0轟/,
     );
 
     // Completing the same saved question again cannot supply a recovery answer.
@@ -293,7 +304,7 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     }
     const recoveredStats = await assertState(page, scoring(0, 0, false));
     expect(recoveredStats.totalPoints).toBe(5);
-    expect(recoveredStats.solvedCount).toBe(5);
+    expect(recoveredStats.solvedCount).toBe(6);
     await page.getByRole("button", { name: "終了する", exact: true }).click();
     await expect(page.locator(".challenge-summary")).toContainText("50,000轟");
     await expect(challenge.locator(".scoring-notice")).toHaveCount(0);
@@ -312,20 +323,20 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     await page.reload();
     const finalStats = await assertState(page, scoring(0, 0, false));
     expect(finalStats.totalPoints).toBe(8);
-    expect(finalStats.solvedCount).toBe(6);
+    expect(finalStats.solvedCount).toBe(7);
     expect(finalStats.levelCounts).toEqual({
       basic: 1,
       applied: 1,
-      advanced: 4,
+      advanced: 5,
     });
     expect(finalStats.activity).toEqual([
-      { date: daily.date, count: 6, points: 8 },
+      { date: daily.date, count: 7, points: 8 },
     ]);
     await expect(dashboard.locator(".scoring-notice")).toHaveCount(0);
     await expect(page.locator(".stat-item").first()).toContainText("80,000轟");
-    await expect(page.locator(".stat-item").nth(2)).toContainText("6問");
+    await expect(page.locator(".stat-item").nth(2)).toContainText("7問");
     await expect(page.locator(".selected-day-detail")).toContainText(
-      "6 問に正解",
+      "7 問に正解",
     );
     await expect(page.locator(".calendar-day.has-points")).toHaveCount(1);
     await expect(page.locator(".calendar-day.has-points")).toContainText(
