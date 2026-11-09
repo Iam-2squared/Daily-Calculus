@@ -5,7 +5,12 @@ import type {
   PrivateProblem,
   Problem,
 } from "../shared/types.js";
-import { generateBankProblem } from "./problem-bank/index.js";
+import {
+  generateBankProblem,
+  generateBankProblemV3,
+} from "./problem-bank/index.js";
+import { pickDistractors } from "./problem-bank/choice-options.js";
+import { randomFromSeed, type Random } from "./problem-bank/core.js";
 
 type Content = Omit<PrivateProblem, "id" | "date" | "level" | "correctIndex">;
 const DAY_MS = 86_400_000;
@@ -374,14 +379,263 @@ function validDate(date: string): boolean {
   );
 }
 
-function getLegacyProblems(date: string): PrivateProblem[] {
+function legacyChoices(
+  level: Level,
+  day: number,
+  content: Content,
+  random: Random,
+): string[] {
+  let pool: string[];
+  if (level === "basic") {
+    const n = 2 + (Math.floor(day / 5) % 4),
+      a = 2 + (Math.floor(day / 20) % 3),
+      k = 2 + (Math.floor(day / 60) % 5);
+    switch (day % 5) {
+      case 0: {
+        const value = n * a ** (n - 1);
+        pool = [
+          `${a ** (n - 1)}`,
+          `${n * a ** n}`,
+          `${n * a ** (n + 1)}`,
+          `${(n - 1) * a ** (n - 1)}`,
+          `${(n + 1) * a ** (n - 1)}`,
+          `${n * a ** (n - 2)}`,
+          `${a ** (n - 2)}`,
+          fraction(value, n + 1),
+          fraction(value, n + 2),
+        ];
+        break;
+      }
+      case 1:
+        pool = [
+          "0",
+          `${k}`,
+          `${k + 1}`,
+          `${k + 2}`,
+          fraction(k, n + 1),
+          fraction(k, n + 2),
+          fraction(k, n + 3),
+          fraction(k, n - 1),
+          fraction(k + 1, n),
+          fraction(k + 2, n),
+          fraction(k + 3, n),
+        ];
+        break;
+      case 2:
+        pool = [
+          "-\\cos x",
+          "-2\\sin x",
+          "-\\sin(2x)",
+          "-\\sin(x/2)",
+          "-\\cos(2x)",
+          "-\\frac{1}{2}\\sin x",
+        ];
+        break;
+      case 3:
+        pool = [
+          fraction(1, n + 1),
+          fraction(1, n + 2),
+          fraction(1, n + 3),
+          fraction(1, n * n),
+          fraction(1, n - 1),
+          fraction(2, n),
+          fraction(3, n),
+          `${n}`,
+        ];
+        break;
+      default:
+        pool = [
+          `${fraction(k, n + 2)}x^{${n + 1}} + C`,
+          `${fraction(k, n)}x^{${n + 1}} + C`,
+          `${fraction(k, n - 1)}x^{${n + 1}} + C`,
+          `${fraction(1, n + 1)}x^{${n + 1}} + C`,
+          `${fraction(k, n + 1)}x^{${n}} + C`,
+          `${fraction(k, n + 2)}x^{${n + 2}} + C`,
+          `${k}x^{${n + 1}} + C`,
+        ];
+    }
+  } else if (level === "applied") {
+    const n = 2 + (Math.floor(day / 5) % 3),
+      a = 2 + (Math.floor(day / 15) % 3),
+      k = 2 + (Math.floor(day / 45) % 4);
+    switch (day % 5) {
+      case 0:
+        pool = [
+          `${n * (k + 1) ** (n - 1)}`,
+          `${k * (k + 1) ** (n - 1)}`,
+          `${n * k * (k + 1) ** n}`,
+          `${(n - 1) * k * (k + 1) ** (n - 1)}`,
+          `${n * k * (k + 1) ** (n - 2)}`,
+          `${n * (k + 1) ** (n - 2)}`,
+          `${(n + 1) * k * (k + 1) ** (n - 1)}`,
+          `${n * k * (k + 2) ** (n - 1)}`,
+        ];
+        break;
+      case 1:
+        pool = [
+          `\\frac{${k - 1}e^{${k}}-1}{${k * k}}`,
+          `\\frac{e^{${k}}-1}{${k}}`,
+          `\\frac{${k + 1}e^{${k}}+1}{${k * k}}`,
+          `\\frac{${k - 1}e^{${k}}+1}{${k}}`,
+          `\\frac{${k}e^{${k}}+1}{${k * k}}`,
+          `\\frac{${k - 1}e^{${k}}+2}{${k * k}}`,
+          `\\frac{${k - 1}e^{${k}}+1}{${2 * k * k}}`,
+          `\\frac{${k - 1}e^{${k}}+1}{${(k + 1) ** 2}}`,
+        ];
+        break;
+      case 2:
+        pool = [
+          fraction(k, 2),
+          fraction(k, 3),
+          fraction(k, 4),
+          `${k}`,
+          fraction(k, 9),
+          fraction(k, 12),
+          fraction(k, 18),
+          fraction(k - 1, 6),
+          fraction(k + 1, 6),
+        ];
+        break;
+      case 3:
+        pool = [
+          `${-(a ** 3)}`,
+          `${-3 * a ** 3}`,
+          `${-4 * a ** 3}`,
+          `${-(a ** 2)}`,
+          `${-2 * a ** 2}`,
+          fraction(-a * a, 2),
+          `${-2 * a ** 3 - a * a}`,
+        ];
+        break;
+      default:
+        pool = [
+          `${k}`,
+          `${k - 1}`,
+          `${2 * k - 1}`,
+          `${k * (n + 1)}`,
+          `${2 * k * n}`,
+          `${2 * (k + 1)}`,
+          `${2 * k + 1}`,
+          `${k * (n + 2)}`,
+        ];
+    }
+  } else {
+    const n = 2 + (Math.floor(day / 5) % 4),
+      k = 2 + (Math.floor(day / 20) % 4);
+    switch (day % 5) {
+      case 0:
+        pool = [
+          `${k * k}`,
+          fraction(k, 2),
+          fraction(k * k, 6),
+          fraction(k * k, 3),
+          fraction(k * (k + 1), 2),
+          fraction((k - 1) ** 2, 2),
+          fraction((k + 1) ** 2, 2),
+        ];
+        break;
+      case 1:
+        pool = [
+          fraction(1, k),
+          fraction(1, k ** 3),
+          fraction(1, k ** 4),
+          fraction(1, 2 * k),
+          fraction(2, k * k),
+          fraction(3, k * k),
+          fraction(1, k * k - 1),
+          fraction(1, k * k + k),
+          fraction(1, k * k - k),
+          fraction(1, (k + 1) ** 2),
+        ];
+        break;
+      case 2:
+        pool = [
+          `${2 * k}-${coefficient(k, 4)}\\pi`,
+          `${4 * k}-${coefficient(k, 2)}\\pi`,
+          `${2 * k}-${coefficient(k, 3)}\\pi`,
+          `${k}-${coefficient(k, 4)}\\pi`,
+          `${fraction(k, 2)}-${coefficient(k, 8)}\\pi`,
+          `${fraction(2 * k, 3)}-${coefficient(k, 6)}\\pi`,
+          `${2 * k}-${coefficient(k, 6)}\\pi`,
+        ];
+        break;
+      case 3:
+        pool = [
+          `\\frac{\\pi}{${n}}`,
+          `\\frac{\\pi}{${4 * n}}`,
+          `\\frac{\\pi}{${3 * n}}`,
+          `\\frac{\\pi}{${6 * n}}`,
+          `\\frac{\\pi}{${n * n}}`,
+          `\\frac{\\pi}{${2 * (n + 1)}}`,
+          `\\frac{\\pi}{${2 * (n - 1)}}`,
+          `\\frac{3\\pi}{${2 * n}}`,
+          `\\frac{2\\pi}{${n}}`,
+        ];
+        break;
+      default:
+        pool = [
+          fraction(-1, n + 1),
+          fraction(-1, n * n),
+          fraction(-1, (n + 2) ** 2),
+          fraction(-1, (n + 3) ** 2),
+          fraction(-2, (n + 1) ** 2),
+          fraction(-1, 2 * (n + 1) ** 2),
+          fraction(-1, n * (n + 1)),
+          fraction(-1, (n + 1) * (n + 2)),
+          fraction(-1, n + 2),
+        ];
+    }
+  }
+  return pickDistractors(content.choices[0], pool, random);
+}
+
+function getLegacyProblems(
+  date: string,
+  revision: 2 | 3 = 2,
+): PrivateProblem[] {
   if (!validDate(date)) throw new Error("Invalid problem date");
-  // Daily deterministic content. No browser timezone or random source affects answers.
   const epoch = Math.floor(Date.parse(`${date}T00:00:00Z`) / DAY_MS);
   const day = ((epoch % 1800) + 1800) % 1800;
   const builders = { basic, applied, advanced };
   return levels.map((level, i) => {
     const content = builders[level](day + i * 7);
+    if (revision === 3) {
+      const id = `d3:${date}:l:${level}`,
+        rewardId = `${date}:${level}`;
+      const seed = createHash("sha256")
+        .update(`daily-calculus:d3-legacy-options:${date}:${level}`)
+        .digest("hex")
+        .slice(0, 16);
+      const options = legacyChoices(
+        level,
+        day + i * 7,
+        content,
+        randomFromSeed(seed),
+      );
+      const shuffleSeed = createHash("sha256")
+        .update(`daily-calculus:v3-choice-shuffle:${seed}:${id}`)
+        .digest("hex")
+        .slice(0, 16);
+      const shuffle = randomFromSeed(shuffleSeed);
+      const tagged = options.map((text, index) => ({
+        text,
+        correct: index === 0,
+      }));
+      for (let index = tagged.length - 1; index > 0; index--) {
+        const other = shuffle(0, index);
+        [tagged[index], tagged[other]] = [tagged[other], tagged[index]];
+      }
+      return {
+        ...content,
+        choices: tagged.map((choice) => choice.text),
+        correctIndex: tagged.findIndex((choice) => choice.correct),
+        id,
+        rewardId,
+        date,
+        level,
+      };
+    }
+    // Revision 2 remains byte-for-byte compatible with previously issued IDs.
     const shift = (day + i) % 4;
     const choices = [
       ...content.choices.slice(shift),
@@ -413,9 +667,10 @@ const DAILY_LEVEL_ORDERS: readonly (readonly Level[])[] = [
   ["applied", "basic", "advanced"],
 ];
 
-export function getProblems(date: string): PrivateProblem[] {
-  if (!validDate(date)) throw new Error("Invalid problem date");
-  if (date < DAILY_CATEGORY_START) return getLegacyProblems(date);
+function getCategorizedProblems(
+  date: string,
+  revision: 2 | 3,
+): PrivateProblem[] {
   const elapsedDays = Math.floor(
     (Date.parse(`${date}T00:00:00Z`) -
       Date.parse(`${DAILY_CATEGORY_START}T00:00:00Z`)) /
@@ -423,39 +678,66 @@ export function getProblems(date: string): PrivateProblem[] {
   );
   const order = DAILY_LEVEL_ORDERS[elapsedDays % DAILY_LEVEL_ORDERS.length];
   return DAILY_SLOTS.map(({ category, code }, index) => {
-    const level = order[index];
-    const id = `d2:${date}:${code}:${level}`;
+    const level = order[index],
+      rewardId = `d2:${date}:${code}:${level}`;
+    const id = revision === 3 ? `d3:${date}:${code}:${level}` : rewardId;
+    // Keep the original content seed: changing choices must not change the math.
     const seed = createHash("sha256")
       .update(`daily-calculus:d2:${date}:${code}`)
       .digest("hex")
       .slice(0, 16);
-    const problem = generateBankProblem(level, seed, date, id, {
-      subject: category === "application" ? "all" : category,
+    const options = {
+      subject: category === "application" ? ("all" as const) : category,
       application: category === "application",
-    });
-    return { ...problem, dailyCategory: category };
+    };
+    const original = generateBankProblem(level, seed, date, rewardId, options);
+    if (revision === 2) return { ...original, dailyCategory: category };
+    const revised = generateBankProblemV3(level, seed, date, id, options);
+    if (
+      revised.choices[revised.correctIndex] !==
+      original.choices[original.correctIndex]
+    )
+      throw new Error("Choice revision changed the daily answer");
+    return {
+      ...original,
+      id,
+      rewardId,
+      choices: revised.choices,
+      correctIndex: revised.correctIndex,
+      dailyCategory: category,
+    };
   });
 }
 
+export function getProblems(date: string): PrivateProblem[] {
+  if (!validDate(date)) throw new Error("Invalid problem date");
+  return date < DAILY_CATEGORY_START
+    ? getLegacyProblems(date, 3)
+    : getCategorizedProblems(date, 3);
+}
+
 export function getProblem(id: string): PrivateProblem | null {
-  if (id.startsWith("d2:")) {
-    const [, date, code, level, ...extra] = id.split(":");
-    if (
-      extra.length ||
-      !validDate(date) ||
-      date < DAILY_CATEGORY_START ||
-      !["d", "i", "a"].includes(code) ||
-      !levels.includes(level as Level)
-    )
+  if (id.startsWith("d2:") || id.startsWith("d3:")) {
+    const [version, date, code, level, ...extra] = id.split(":");
+    if (extra.length || !validDate(date) || !levels.includes(level as Level))
       return null;
-    // The slot's difficulty is part of the dated schedule, not a client choice.
-    return getProblems(date).find((problem) => problem.id === id) ?? null;
+    if (version === "d3" && code === "l") {
+      return date < DAILY_CATEGORY_START
+        ? (getLegacyProblems(date, 3).find((problem) => problem.id === id) ??
+            null)
+        : null;
+    }
+    if (date < DAILY_CATEGORY_START || !["d", "i", "a"].includes(code))
+      return null;
+    return (
+      getCategorizedProblems(date, version === "d3" ? 3 : 2).find(
+        (problem) => problem.id === id,
+      ) ?? null
+    );
   }
   const [date, level, ...extra] = id.split(":");
   if (extra.length || !validDate(date) || !levels.includes(level as Level))
     return null;
-  // Old cached daily IDs always resolve against their original generator,
-  // including IDs issued for dates on or after the category cutover.
   return (
     getLegacyProblems(date).find((problem) => problem.level === level) ?? null
   );

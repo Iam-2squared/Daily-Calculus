@@ -34,7 +34,7 @@ async function issue(
 }
 
 async function correctAnswer(page: Page, problem: Problem) {
-  const generate = /^c2[pt]\./.test(problem.id)
+  const generate = /^c[23][pt]\./.test(problem.id)
     ? generateBankProblem
     : generatePracticeProblem;
   const privateProblem = generate(

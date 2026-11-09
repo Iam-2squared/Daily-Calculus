@@ -14,7 +14,7 @@ async function begin(page: Page): Promise<ChallengeResponse> {
 }
 async function correctAnswer(page: Page, problem: Problem) {
   const seed = problem.id.split(".")[4];
-  const generate = /^c2[pt]\./.test(problem.id)
+  const generate = /^c[23][pt]\./.test(problem.id)
     ? generateBankProblem
     : generatePracticeProblem;
   const privateProblem = generate(

@@ -99,7 +99,11 @@ test("the daily category cutover begins on November 7 and preserves every legacy
   );
   assert.deepEqual(
     previous.map((problem) => problem.id),
-    ["2026-11-06:basic", "2026-11-06:applied", "2026-11-06:advanced"],
+    [
+      "d3:2026-11-06:l:basic",
+      "d3:2026-11-06:l:applied",
+      "d3:2026-11-06:l:advanced",
+    ],
   );
   for (const fixture of LEGACY_FIXTURES) assertLegacyFixture(fixture);
 
@@ -110,7 +114,7 @@ test("the daily category cutover begins on November 7 and preserves every legacy
     CATEGORIES,
   );
   assert.ok(
-    current.every((problem) => problem.id.startsWith(`d2:${CUTOVER}:`)),
+    current.every((problem) => problem.id.startsWith(`d3:${CUTOVER}:`)),
   );
   for (const problem of previous)
     assert.deepEqual(getProblem(problem.id), problem);
@@ -145,7 +149,7 @@ test("daily slots remain differentiation, integration and application while all 
     problems.forEach((problem, index) => {
       assert.equal(
         problem.id,
-        `d2:${date}:${SLOT_CODES[index]}:${problem.level}`,
+        `d3:${date}:${SLOT_CODES[index]}:${problem.level}`,
       );
       levelCounts[index][problem.level]++;
       // Some bank implementations retain this private metadata; assert it when
@@ -194,7 +198,7 @@ test("new daily problems are deterministic, preserve category metadata and resol
         (level) => level !== problem.level,
       )) {
         assert.equal(
-          getProblem(`d2:${date}:${SLOT_CODES[index]}:${forgedLevel}`),
+          getProblem(`d3:${date}:${SLOT_CODES[index]}:${forgedLevel}`),
           null,
         );
       }
@@ -235,7 +239,10 @@ test("new daily ID parsing rejects dates before cutover, invalid Gregorian dates
     "d2:2026-11-07::basic",
     "d2:2026-11-07:d:basic ",
     "d2:2026-11-07:d:basic\n",
-    "d3:2026-11-07:d:basic",
+    "d3:2026-11-07:l:basic",
+    "d3:2026-11-06:d:basic",
+    "d3:2026-11-07:x:basic",
+    "d4:2026-11-07:d:basic",
     "2026-11-07:d:basic",
     "d2",
   ])

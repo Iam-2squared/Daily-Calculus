@@ -64,8 +64,8 @@ async function issueChallenge(
 }
 
 function correctIndex(problem: Problem) {
-  if (/^c[12][pt]\./.test(problem.id)) {
-    const generate = problem.id.startsWith("c2")
+  if (/^c[123][pt]\./.test(problem.id)) {
+    const generate = /^c[23]/.test(problem.id)
       ? generateBankProblem
       : generatePracticeProblem;
     return generate(

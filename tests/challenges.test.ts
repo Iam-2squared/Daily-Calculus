@@ -7,7 +7,10 @@ import { createApp } from "../server/app.js";
 import { Challenges } from "../server/challenges.js";
 import type { ChallengeResponse } from "../shared/types.js";
 import { generatePracticeProblem } from "../server/practice-problems.js";
-import { generateBankProblem } from "../server/problem-bank/index.js";
+import {
+  generateBankProblem,
+  generateBankProblemV3,
+} from "../server/problem-bank/index.js";
 
 const SIGNING_KEY = "test_challenge_key_stable_across_app_instances_123456789";
 async function harness(start = new Date("2026-10-28T05:00:00Z")) {
@@ -103,7 +106,7 @@ test("unlimited practice issues fresh questions beyond the three daily questions
     );
     assert.equal(challenge.status, 200);
     assert.equal(challenge.body.problem.level, level);
-    assert.match(challenge.body.problem.id, /^c2p\./);
+    assert.match(challenge.body.problem.id, /^c3p\./);
     assert.equal(challenge.body.run, undefined);
     assert.equal(challenge.body.serverNow, h.time());
     assert.equal("correctIndex" in challenge.body.problem, false);
@@ -536,7 +539,7 @@ test("invalid subjects, mid-run subject changes, tampered subject codes and mism
   for (let candidate = 0; candidate < 100; candidate++) {
     const value = candidate.toString(16).padStart(16, "0");
     if (
-      generateBankProblem(
+      generateBankProblemV3(
         "basic",
         value,
         challenge.body.problem.date,
@@ -728,6 +731,111 @@ test("legacy c1 signed seeds retain exact math and answer order under filtered r
           ),
         (error: unknown) =>
           error instanceof Error && "status" in error && error.status === 403,
+      );
+    }
+  }
+});
+
+test("legacy c2 signed choices stay exact while new challenges issue c3 IDs", () => {
+  const signer = new Challenges(SIGNING_KEY),
+    time = new Date("2026-11-09T05:00:00Z"),
+    uid = 17;
+  const date = "2026-11-09",
+    seed = "0123456789abcdef",
+    nonce = Buffer.alloc(8, 9).toString("base64url");
+  const day = Math.floor(Date.parse(`${date}T00:00:00Z`) / 86400000).toString(
+    36,
+  );
+  const snapshots = [
+    {
+      level: "basic",
+      code: "b",
+      formula: "f(x)=\\frac{7}{x+1}",
+      choices: [
+        "-\\frac{7}{4}",
+        "\\frac{7}{16}",
+        "-\\frac{7}{64}",
+        "-\\frac{7}{16}",
+      ],
+    },
+    {
+      level: "applied",
+      code: "a",
+      formula: "f(x)=\\log(1+7x^2)",
+      choices: [
+        "\\frac{11}{4}",
+        "\\frac{3}{4}",
+        "-\\frac{7}{4}",
+        "\\frac{7}{4}",
+      ],
+    },
+    {
+      level: "advanced",
+      code: "h",
+      formula: "f(x)=x^2e^{26x}",
+      choices: ["780e^{26}", "-782e^{26}", "730e^{26}", "782e^{26}"],
+    },
+  ] as const;
+  for (const snapshot of snapshots) {
+    const runPayload = [
+      "r2",
+      snapshot.code,
+      uid.toString(36),
+      time.getTime().toString(36),
+      nonce,
+      "d",
+    ].join(".");
+    const runToken = `${runPayload}.${fixtureSign("run", runPayload)}`;
+    for (const prefix of ["c2p", "c2t"]) {
+      const payload = [
+        prefix,
+        snapshot.code,
+        day,
+        uid.toString(36),
+        seed,
+        prefix === "c2t" ? nonce : "-",
+      ].join(".");
+      const id = `${payload}.${fixtureSign("problem", payload)}`;
+      const resolved = signer.resolve(
+        id,
+        uid,
+        time,
+        prefix === "c2t" ? runToken : undefined,
+      );
+      assert.equal(resolved.formula, snapshot.formula);
+      assert.deepEqual(resolved.choices, [...snapshot.choices]);
+      assert.equal(resolved.correctIndex, 3);
+      assert.throws(() =>
+        signer.resolve(
+          id.replace("c2", "c3"),
+          uid,
+          time,
+          prefix === "c2t" ? runToken : undefined,
+        ),
+      );
+    }
+    for (const mode of ["practice", "time-attack"] as const) {
+      const issued = signer.issue(
+        snapshot.level,
+        mode,
+        uid,
+        time,
+        undefined,
+        true,
+      );
+      assert.match(
+        issued.problem.id,
+        mode === "practice" ? /^c3p\./ : /^c3t\./,
+      );
+      const expected = generateBankProblemV3(
+        snapshot.level,
+        issued.problem.id.split(".")[4],
+        date,
+        issued.problem.id,
+      );
+      assert.deepEqual(
+        signer.resolve(issued.problem.id, uid, time, issued.run?.token),
+        expected,
       );
     }
   }

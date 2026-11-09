@@ -178,7 +178,7 @@ test("solving the three daily categories earns nine points once and persists aft
   expect(stats.solvedCount).toBe(3);
   expect(stats.levelCounts).toEqual({ basic: 1, applied: 1, advanced: 1 });
   expect([...stats.solvedIds].sort()).toEqual(
-    daily.problems.map((problem) => problem.id).sort(),
+    daily.problems.map((problem) => problem.rewardId ?? problem.id).sort(),
   );
   expect(stats.activity).toEqual([{ date: daily.date, count: 3, points: 9 }]);
 

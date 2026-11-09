@@ -415,7 +415,9 @@ export default function App() {
         <ProblemModal
           problem={activeProblem}
           user={user}
-          isSolved={stats.solvedIds.includes(activeProblem.id)}
+          isSolved={stats.solvedIds.includes(
+            activeProblem.rewardId ?? activeProblem.id,
+          )}
           scoringStatus={stats.scoring}
           scoringPaused={stats.scoringPaused}
           scoringFrozenAt={stats.scoringFrozenAt}
@@ -460,7 +462,7 @@ function Dashboard({
   const todayPoints = todayActivity?.points ?? 0;
   const tier = pointColor(todayPoints);
   const complete = problems.filter((p) =>
-    stats.solvedIds.includes(p.id),
+    stats.solvedIds.includes(p.rewardId ?? p.id),
   ).length;
   return (
     <div className="dashboard">
@@ -545,7 +547,7 @@ function Dashboard({
           <div className="problem-grid">
             {problems.map((p) => {
               const meta = LEVELS[p.level];
-              const done = stats.solvedIds.includes(p.id);
+              const done = stats.solvedIds.includes(p.rewardId ?? p.id);
               return (
                 <button
                   className={`problem-card ${p.level} ${done ? "solved" : ""}`}

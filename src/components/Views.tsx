@@ -691,8 +691,8 @@ export function ArchiveView({
         (level === "all" || p.level === level) &&
         (status === "all" ||
           (status === "solved"
-            ? stats.solvedIds.includes(p.id)
-            : !stats.solvedIds.includes(p.id))),
+            ? stats.solvedIds.includes(p.rewardId ?? p.id)
+            : !stats.solvedIds.includes(p.rewardId ?? p.id))),
     ) || [];
   const pages = Math.ceil(filtered.length / 6);
   return (
@@ -796,10 +796,12 @@ export function ArchiveView({
                 <div className="archive-card-bottom">
                   <span
                     className={
-                      stats.solvedIds.includes(p.id) ? "archive-solved" : ""
+                      stats.solvedIds.includes(p.rewardId ?? p.id)
+                        ? "archive-solved"
+                        : ""
                     }
                   >
-                    {stats.solvedIds.includes(p.id) ? (
+                    {stats.solvedIds.includes(p.rewardId ?? p.id) ? (
                       <>
                         <CheckCircle2 size={15} /> 正解済み
                       </>

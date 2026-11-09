@@ -10,7 +10,10 @@ import {
   type TimeAttackRun,
 } from "../shared/types.js";
 import { generatePracticeProblem } from "./practice-problems.js";
-import { generateBankProblem } from "./problem-bank/index.js";
+import {
+  generateBankProblem,
+  generateBankProblemV3,
+} from "./problem-bank/index.js";
 import { publicProblem } from "./problems.js";
 
 export const TIME_ATTACK_SECONDS = 180;
@@ -56,7 +59,7 @@ const expired = () =>
     "制限時間が終了しました。結果を確認して、もう一度挑戦できます。",
   );
 export function isChallengeId(id: string): boolean {
-  return /^(c1p|c1t|c2p|c2t)\./.test(id);
+  return /^c[123][pt]\./.test(id);
 }
 export function validChallengeInput(
   level: unknown,
@@ -192,7 +195,7 @@ export class Challenges {
     for (let attempt = 0; attempt < 128; attempt++) {
       const seed = randomBytes(8).toString("hex");
       const payload = [
-        mode === "practice" ? "c2p" : "c2t",
+        mode === "practice" ? "c3p" : "c3t",
         LEVEL_CODE[level],
         encodeDate(date),
         userId.toString(36),
@@ -200,7 +203,7 @@ export class Challenges {
         run?.nonce || "-",
       ].join(".");
       const id = `${payload}.${this.sign("problem", payload)}`;
-      const candidate = generateBankProblem(level, seed, date, id);
+      const candidate = generateBankProblemV3(level, seed, date, id);
       if (subject === "all" || candidate.subject === subject) {
         problem = candidate;
         break;
@@ -235,7 +238,7 @@ export class Challenges {
     const parts = id.split(".");
     if (
       parts.length !== 7 ||
-      !["c1p", "c1t", "c2p", "c2t"].includes(parts[0]) ||
+      !["c1p", "c1t", "c2p", "c2t", "c3p", "c3t"].includes(parts[0]) ||
       !/^[a-f0-9]{16}$/.test(parts[4])
     )
       throw invalid();
@@ -246,10 +249,12 @@ export class Challenges {
     const date = decodeDate(parts[2]);
     const today = todayJST(now);
     if (date > today || date < addDays(today, -365)) throw invalid();
-    const problem = parts[0].startsWith("c2")
-      ? generateBankProblem(level, parts[4], date, id)
-      : generatePracticeProblem(level, parts[4], date, id);
-    if (parts[0] === "c1t" || parts[0] === "c2t") {
+    const problem = parts[0].startsWith("c3")
+      ? generateBankProblemV3(level, parts[4], date, id)
+      : parts[0].startsWith("c2")
+        ? generateBankProblem(level, parts[4], date, id)
+        : generatePracticeProblem(level, parts[4], date, id);
+    if (parts[0].endsWith("t")) {
       const run = this.run(runToken, userId, level, now.getTime());
       if (
         run.nonce !== parts[5] ||

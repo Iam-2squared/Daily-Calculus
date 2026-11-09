@@ -539,7 +539,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
     const result = user
       ? await store.recordSolve({
           userId: user.id,
-          problemId: problem.id,
+          problemId: problem.rewardId ?? problem.id,
           level: problem.level,
           points: LEVELS[problem.level].points,
           solvedAt: now().toISOString(),

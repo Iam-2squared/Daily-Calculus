@@ -37,6 +37,8 @@ export const LEVELS: Record<
 };
 export interface Problem {
   id: string;
+  // Choice revisions share the original completion receipt and award identity.
+  rewardId?: string;
   date: string;
   level: Level;
   subject?: ProblemSubject;
