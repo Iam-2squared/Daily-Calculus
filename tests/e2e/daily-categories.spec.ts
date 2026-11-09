@@ -40,7 +40,7 @@ async function assertDailyCards(
     );
     await expect(card.locator(".points-badge")).toHaveText(
       solved
-        ? "加点なし"
+        ? "本日回答済み"
         : `+${(difficulty.points * 10_000).toLocaleString("ja-JP")} 轟`,
     );
   }
@@ -173,7 +173,7 @@ test("solving the three daily categories earns nine points once and persists aft
   expect(duplicate.result.pointsEarned).toBe(0);
   expect(duplicate.result.alreadySolved).toBe(true);
   await expect(duplicate.dialog.locator(".answer-result")).toContainText(
-    "同じ問題への再加点はありません。",
+    "この問題は今日すでに回答したため、今回は加点されません。",
   );
   await duplicate.dialog
     .getByRole("button", { name: "閉じる", exact: true })

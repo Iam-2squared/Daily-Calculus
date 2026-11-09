@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { openDatabase, type Database } from "./db.js";
+import { unmappedQuestionFingerprint } from "./content-fingerprint.js";
 import { addDays, todayJST } from "../shared/date.js";
 import type {
   Stats,
@@ -45,6 +46,7 @@ export interface SolveRecord {
   awardPending: boolean;
   awardDuplicate: boolean;
   awardUnavailable: boolean;
+  awardAttemptedToday: boolean;
   scoringFrozenAt: string | null;
 }
 export interface ScoringControl {
@@ -130,6 +132,7 @@ export function emptyStats(): Stats {
     solvedIds: [],
     wrongTodayIds: [],
     pendingAwardIds: [],
+    attemptedTodayContentIds: [],
     levelCounts: { basic: 0, applied: 0, advanced: 0 },
     streak: 0,
     scoring: scoringStatus(),
@@ -245,11 +248,11 @@ export class SqliteStore implements Store {
           "SELECT mistakes,correct_streak FROM scoring_state WHERE user_id=?",
         )
         .get(input.userId)!;
-      let mistakes = Number(state.mistakes);
-      let correctStreak = Number(state.correct_streak);
+      let mistakes = Number(state.mistakes),
+        correctStreak = Number(state.correct_streak);
       const receipt = this.db
         .prepare(
-          "SELECT s.level,s.points,s.solved_date,COALESCE(a.pending,0) AS pending FROM solves s LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id WHERE s.user_id=? AND s.problem_id=?",
+          "SELECT level,points,solved_date FROM solves WHERE user_id=? AND problem_id=?",
         )
         .get(input.userId, input.problemId);
       const alreadySolved = !!receipt;
@@ -271,18 +274,13 @@ export class SqliteStore implements Store {
         mapped.fingerprint !== providedFingerprint
       )
         throw new Error("Question identity changed.");
-      const fingerprint = providedFingerprint || mapped?.fingerprint || null;
+      const knownFingerprint =
+        providedFingerprint || mapped?.fingerprint || null;
       const guardEnabled =
         this.db
           .prepare("SELECT enabled FROM content_guard WHERE singleton=1")
           .get()?.enabled === 1;
-      const awardUnavailable =
-        input.awardEligible === false ||
-        /^c[123][pt]\./.test(input.problemId) ||
-        (guardEnabled && !fingerprint);
-      if (guardEnabled && !fingerprint) {
-        // Even the default account-state insertion above must not survive an
-        // unrecognized old payload after the content guard is enabled.
+      if (guardEnabled && !knownFingerprint) {
         this.db.exec("ROLLBACK");
         return {
           pointsEarned: 0,
@@ -294,6 +292,7 @@ export class SqliteStore implements Store {
           awardPending: false,
           awardDuplicate: false,
           awardUnavailable: true,
+          awardAttemptedToday: false,
           scoringFrozenAt: control.scoringFrozenAt,
         };
       }
@@ -303,92 +302,121 @@ export class SqliteStore implements Store {
             "INSERT INTO problem_fingerprints(problem_id,fingerprint) VALUES(?,?)",
           )
           .run(input.problemId, providedFingerprint);
-      const awardDuplicate = !!(
-        fingerprint &&
+      // Missing keys are supported only before guard activation. They never
+      // create a trusted global mapping that could conflict with real content.
+      const fingerprint =
+        knownFingerprint || unmappedQuestionFingerprint(input.problemId);
+      const dayClaim = this.db
+        .prepare(
+          "SELECT first_correct_at FROM daily_content_receipts WHERE user_id=? AND fingerprint=? AND attempt_date=?",
+        )
+        .get(input.userId, fingerprint, input.date);
+      const awardDuplicate = !!dayClaim;
+      if (!dayClaim)
         this.db
           .prepare(
-            "SELECT 1 FROM content_receipts WHERE user_id=? AND fingerprint=?",
+            "INSERT INTO daily_content_receipts(user_id,fingerprint,attempt_date,first_problem_id) VALUES(?,?,?,?)",
           )
-          .get(input.userId, fingerprint)
-      );
-      if (fingerprint && !awardDuplicate)
+          .run(input.userId, fingerprint, input.date, input.problemId);
+      if (knownFingerprint)
         this.db
           .prepare(
-            "INSERT INTO content_receipts(user_id,fingerprint,first_problem_id,first_seen_date) VALUES(?,?,?,?)",
+            "INSERT INTO content_receipts(user_id,fingerprint,first_problem_id,first_seen_date) VALUES(?,?,?,?) ON CONFLICT(user_id,fingerprint) DO NOTHING",
           )
           .run(input.userId, fingerprint, input.problemId, input.date);
-      const awardPending = false;
-      if (!input.correct && !receipt) {
+      const awardUnavailable =
+        input.awardEligible === false || /^c[123][pt]\./.test(input.problemId);
+      const gateEligible = !awardDuplicate && !awardUnavailable;
+      if (!input.correct && !awardDuplicate)
         this.db
           .prepare(
             "INSERT INTO wrong_attempts(user_id,problem_id,wrong_date) VALUES(?,?,?) ON CONFLICT(user_id,problem_id,wrong_date) DO NOTHING",
           )
           .run(input.userId, input.problemId, input.date);
-      }
       const wrongToday = !!this.db
         .prepare(
           "SELECT 1 FROM wrong_attempts w LEFT JOIN problem_fingerprints f ON f.problem_id=w.problem_id WHERE w.user_id=? AND w.wrong_date=? AND (w.problem_id=? OR f.fingerprint=?)",
         )
         .get(input.userId, input.date, input.problemId, fingerprint);
-      let pointsEarned = 0;
-      let awardBlocked = false;
-      let awardPaused = false;
-      if (!alreadySolved) {
-        if (!input.correct) {
-          if (!awardDuplicate && !awardUnavailable) {
-            mistakes = Math.min(2, mistakes + 1);
-            correctStreak = 0;
-          }
-        } else {
-          if (!awardDuplicate && !awardUnavailable) {
-            if (mistakes === 2 && correctStreak < 2) {
-              correctStreak++;
-              awardBlocked = true;
-            } else {
-              pointsEarned = expectedPoints;
-              if (mistakes === 2) {
-                mistakes = 0;
-                correctStreak = 0;
-              }
+      let pointsEarned = 0,
+        awardBlocked = false,
+        awardPaused = false;
+      if (!input.correct) {
+        if (gateEligible) {
+          mistakes = Math.min(2, mistakes + 1);
+          correctStreak = 0;
+        }
+      } else {
+        if (gateEligible) {
+          if (mistakes === 2 && correctStreak < 2) {
+            correctStreak++;
+            awardBlocked = true;
+          } else {
+            pointsEarned = expectedPoints;
+            if (mistakes === 2) {
+              mistakes = 0;
+              correctStreak = 0;
             }
           }
-          if (control.scoringPaused) {
-            pointsEarned = 0;
-            awardPaused = true;
-          }
-          if (wrongToday) pointsEarned = 0;
-          // Every correct answer creates a final receipt. A zero award can
-          // never be upgraded by replaying the question on another day.
+        }
+        if (control.scoringPaused) {
+          pointsEarned = 0;
+          awardPaused = true;
+        }
+        if (wrongToday) pointsEarned = 0;
+        if (!receipt) {
+          // New solves are learning receipts only. Every new financial credit
+          // belongs to the append-only day ledger; legacy points stay final.
           this.db
             .prepare(
-              "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES(?,?,?,?,?,?)",
+              "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES(?,?,?,0,?,?)",
             )
             .run(
               input.userId,
               input.problemId,
               input.level,
-              pointsEarned,
               input.solvedAt,
               input.date,
             );
           this.db
             .prepare(
-              "INSERT INTO solve_awards(user_id,problem_id,pending,award_date,awarded_at) VALUES(?,?,?,?,?)",
+              "INSERT INTO solve_awards(user_id,problem_id,pending,award_date,awarded_at) VALUES(?,?,0,NULL,NULL)",
+            )
+            .run(input.userId, input.problemId);
+        }
+        if (!dayClaim?.first_correct_at)
+          this.db
+            .prepare(
+              "UPDATE daily_content_receipts SET first_correct_at=?,correct_problem_id=? WHERE user_id=? AND fingerprint=? AND attempt_date=? AND first_correct_at IS NULL",
+            )
+            .run(
+              input.solvedAt,
+              input.problemId,
+              input.userId,
+              fingerprint,
+              input.date,
+            );
+        if (pointsEarned > 0)
+          this.db
+            .prepare(
+              "INSERT INTO daily_awards(user_id,fingerprint,award_date,problem_id,level,points,awarded_at) VALUES(?,?,?,?,?,?,?)",
             )
             .run(
               input.userId,
+              fingerprint,
+              input.date,
               input.problemId,
-              Number(awardPending),
-              pointsEarned > 0 ? input.date : null,
-              pointsEarned > 0 ? input.solvedAt : null,
+              input.level,
+              pointsEarned,
+              input.solvedAt,
             );
-        }
+      }
+      if (gateEligible)
         this.db
           .prepare(
             "UPDATE scoring_state SET mistakes=?,correct_streak=? WHERE user_id=?",
           )
           .run(mistakes, correctStreak, input.userId);
-      }
       const result = {
         pointsEarned,
         alreadySolved,
@@ -396,9 +424,10 @@ export class SqliteStore implements Store {
         awardBlocked,
         awardPaused,
         awardWrongDayBlocked: wrongToday,
-        awardPending,
+        awardPending: false,
         awardDuplicate,
         awardUnavailable,
+        awardAttemptedToday: true,
         scoringFrozenAt: control.scoringFrozenAt,
       };
       this.db.exec("COMMIT");
@@ -441,6 +470,11 @@ export class SqliteStore implements Store {
       Stats,
       "totalPoints" | "weeklyPoints" | "solvedCount"
     >;
+    const dailyPoints = this.db
+      .prepare(
+        "SELECT COALESCE(SUM(points),0) AS totalPoints,COALESCE(SUM(CASE WHEN award_date>=? THEN points ELSE 0 END),0) AS weeklyPoints FROM daily_awards WHERE user_id=?",
+      )
+      .get(weekStart, userId)!;
     const activity = this.db
       .prepare(
         `WITH activity_rows AS (
@@ -450,13 +484,30 @@ export class SqliteStore implements Store {
           JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
           WHERE s.user_id=? AND a.award_date<>s.solved_date GROUP BY a.award_date
           UNION ALL
+          SELECT d.attempt_date AS date,COUNT(*) AS count,0 AS points FROM daily_content_receipts d
+          WHERE d.user_id=? AND d.first_correct_at IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM solves s
+            LEFT JOIN problem_fingerprints f ON f.problem_id=s.problem_id
+            LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
+            WHERE s.user_id=d.user_id AND (f.fingerprint=d.fingerprint OR s.problem_id=d.correct_problem_id)
+              AND (s.solved_date=d.attempt_date OR a.award_date=d.attempt_date)
+          ) GROUP BY d.attempt_date
+          UNION ALL
           SELECT COALESCE(a.award_date,s.solved_date) AS date,0 AS count,SUM(s.points) AS points FROM solves s
           LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
           LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id
           WHERE s.user_id=? AND s.points>0 AND v.user_id IS NULL GROUP BY COALESCE(a.award_date,s.solved_date)
+          UNION ALL
+          SELECT award_date AS date,0 AS count,SUM(points) AS points FROM daily_awards WHERE user_id=? GROUP BY award_date
         ) SELECT date,SUM(count) AS count,SUM(points) AS points FROM activity_rows GROUP BY date ORDER BY date`,
       )
-      .all(userId, userId, userId) as unknown as Stats["activity"];
+      .all(
+        userId,
+        userId,
+        userId,
+        userId,
+        userId,
+      ) as unknown as Stats["activity"];
     const solvedIds = this.db
       .prepare(
         "SELECT problem_id FROM solves WHERE user_id = ? ORDER BY solved_at DESC",
@@ -477,6 +528,12 @@ export class SqliteStore implements Store {
       .all(userId, userId, userId, today)
       .map((row) => String(row.problem_id));
     const pendingAwardIds: string[] = [];
+    const attemptedTodayContentIds = this.db
+      .prepare(
+        "SELECT fingerprint FROM daily_content_receipts WHERE user_id=? AND attempt_date=? ORDER BY fingerprint",
+      )
+      .all(userId, today)
+      .map((row) => String(row.fingerprint));
     const levelCounts = { basic: 0, applied: 0, advanced: 0 };
     for (const row of this.db
       .prepare(
@@ -492,10 +549,15 @@ export class SqliteStore implements Store {
     return withStreak(
       {
         ...aggregate,
+        totalPoints:
+          Number(aggregate.totalPoints) + Number(dailyPoints.totalPoints),
+        weeklyPoints:
+          Number(aggregate.weeklyPoints) + Number(dailyPoints.weeklyPoints),
         activity,
         solvedIds,
         wrongTodayIds,
         pendingAwardIds,
+        attemptedTodayContentIds,
         levelCounts,
         streak: 0,
         scoring: scoringStatus(
@@ -512,14 +574,18 @@ export class SqliteStore implements Store {
     period: "all" | "week",
     weekStart: string,
   ): Promise<Leaderboard> {
-    const query = `WITH totals AS (
-      SELECT u.id, u.username, COALESCE(SUM(CASE WHEN v.user_id IS NULL ${period === "week" ? "AND COALESCE(a.award_date,s.solved_date) >= ?" : ""} THEN s.points ELSE 0 END),0) AS points FROM users u
-      LEFT JOIN solves s ON s.user_id = u.id
+    const query = `WITH legacy AS (
+      SELECT s.user_id,COALESCE(SUM(CASE WHEN v.user_id IS NULL ${period === "week" ? "AND COALESCE(a.award_date,s.solved_date) >= ?" : ""} THEN s.points ELSE 0 END),0) AS points FROM solves s
       LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
-      LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id GROUP BY u.id
+      LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id GROUP BY s.user_id
+    ), earned AS (
+      SELECT user_id,SUM(points) AS points FROM daily_awards ${period === "week" ? "WHERE award_date>=?" : ""} GROUP BY user_id
+    ), totals AS (
+      SELECT u.id,u.username,COALESCE(l.points,0)+COALESCE(e.points,0) AS points FROM users u
+      LEFT JOIN legacy l ON l.user_id=u.id LEFT JOIN earned e ON e.user_id=u.id
     ), ranked AS (SELECT *, RANK() OVER (ORDER BY points DESC) AS rank FROM totals)
     SELECT id, username, points, rank FROM ranked`;
-    const parameters = period === "week" ? [weekStart] : [];
+    const parameters = period === "week" ? [weekStart, weekStart] : [];
     const rows = this.db
       .prepare(
         `${query} ORDER BY points DESC, username COLLATE NOCASE, id LIMIT 25`,

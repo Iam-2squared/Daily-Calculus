@@ -64,6 +64,7 @@ export function ChallengeView({
   scoringPaused,
   scoringFrozenAt,
   wrongTodayIds,
+  attemptedTodayContentIds,
   onAnswerAccepted,
 }: {
   user: User | null;
@@ -73,6 +74,7 @@ export function ChallengeView({
   scoringPaused?: boolean;
   scoringFrozenAt?: string | null;
   wrongTodayIds?: string[];
+  attemptedTodayContentIds?: string[];
   pendingAwardIds?: string[];
   onAnswerAccepted?: (problem: Problem, result: AnswerResult) => void;
 }) {
@@ -414,9 +416,15 @@ export function ChallengeView({
     ? (scoringFrozenAt ?? result?.scoringFrozenAt)
     : (result?.scoringFrozenAt ?? scoringFrozenAt);
   const rewardId = problem?.rewardId ?? problem?.id;
+  const contentId = problem?.contentId ?? rewardId;
   const wrongToday =
     result?.awardWrongDayBlocked ??
     (rewardId ? wrongTodayIds?.includes(rewardId) === true : false);
+  const attemptedToday =
+    result?.awardAttemptedToday ??
+    (contentId
+      ? attemptedTodayContentIds?.includes(contentId) === true
+      : false);
 
   if (phase === "setup")
     return (
@@ -529,13 +537,13 @@ export function ChallengeView({
           ) : (
             <>
               <p className="challenge-rule">
-                加点条件を満たすと、基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題への加点は1回のみです。
+                加点条件を満たすと、基礎10,000・応用30,000・難関50,000轟を獲得します。同じ内容の問題は、日本時間の1日につき最初の回答だけが加点判定の対象です。
               </p>
               <p className="challenge-rule">
-                2問間違えると加点が停止します。未正解の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
+                2問間違えると加点が停止します。その日に未回答の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
               </p>
               <p className="challenge-rule">
-                加点条件は今日の微積・挑戦・過去問で共通です。正解済みの問題は連続正解数に含まれません。
+                加点条件は今日の微積・挑戦・過去問で共通です。同じ日の解き直しは連続正解数に含まれません。
               </p>
             </>
           )}
@@ -650,10 +658,10 @@ export function ChallengeView({
               ? "加点停止中"
               : result?.awardUnavailable
                 ? "この問題は加点対象外"
-                : result?.awardDuplicate || result?.alreadySolved
-                  ? "同じ問題への再加点なし"
-                  : wrongToday
-                    ? "この問題は今日は加点なし"
+                : wrongToday
+                  ? "この問題は今日は加点なし"
+                  : attemptedToday || result?.awardDuplicate
+                    ? "本日回答済み"
                     : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
           </p>
           <p className="challenge-run-subject">
@@ -685,6 +693,7 @@ export function ChallengeView({
         paused={currentPaused}
         frozenAt={currentFrozenAt}
         wrongDayBlocked={!result && wrongToday}
+        awardDuplicate={!result && attemptedToday && !wrongToday}
       />
       {!user && (
         <p className="challenge-active-note">
@@ -828,16 +837,11 @@ export function ChallengeView({
                     awardUnavailable={result.awardUnavailable}
                   />
                 )}
-                {result.alreadySolved &&
-                  result.pointsEarned === 0 &&
-                  !currentPaused &&
-                  !result.awardDuplicate &&
-                  !result.awardUnavailable &&
-                  !wrongToday && (
-                    <p className="challenge-rule">
-                      正解済みのため、解き直しても加点されません。
-                    </p>
-                  )}
+                {result.alreadySolved && (
+                  <p className="challenge-rule">
+                    学習記録では正解済みの問題です。
+                  </p>
+                )}
                 <button
                   className="challenge-explanation-toggle"
                   onClick={() => setExplanationOpen((v) => !v)}

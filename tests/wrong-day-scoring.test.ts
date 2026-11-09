@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { createApp } from "../server/app.js";
 import { getProblem, getProblems } from "../server/problems.js";
+import { questionFingerprint } from "../server/content-fingerprint.js";
 import { SqliteStore } from "../server/store.js";
 import type { Level, PrivateProblem } from "../shared/types.js";
 
@@ -29,6 +30,10 @@ function answer(
   return store.recordSolve({
     userId,
     problemId,
+    contentFingerprint: questionFingerprint({
+      prompt: "Test problem",
+      formula: problemId,
+    }),
     correct,
     level,
     points: { basic: 1, applied: 3, advanced: 5 }[level],
@@ -37,34 +42,22 @@ function answer(
   });
 }
 
-test("a wrong-day correct receipt remains permanently unawarded on every later replay", async (t) => {
+test("a wrong-day correct answer earns zero today and one fresh award tomorrow while its first learning receipt stays unchanged", async (t) => {
   const store = new SqliteStore(":memory:");
   t.after(() => store.db.close());
-  const owner = await user(store);
-  const other = await user(store, "other_wrong_day_user");
+  const owner = await user(store),
+    other = await user(store, "other_wrong_day_user");
   const wrong = await answer(store, owner.id, "question", false);
   assert.equal(wrong.awardWrongDayBlocked, true);
-  assert.equal(wrong.awardPending, false);
+  assert.equal(wrong.awardAttemptedToday, true);
   assert.equal((await answer(store, other.id, "question")).pointsEarned, 1);
   const corrected = await answer(store, owner.id, "question");
   assert.equal(corrected.pointsEarned, 0);
-  assert.equal(corrected.alreadySolved, false);
-  assert.equal(corrected.awardWrongDayBlocked, true);
+  assert.equal(corrected.awardDuplicate, true);
   assert.equal(corrected.awardPending, false);
-  assert.equal(corrected.scoring.mistakes, 1);
-  assert.equal((await answer(store, owner.id, "question")).pointsEarned, 0);
-  const learned = await store.stats(owner.id, FIRST_DAY, FIRST_DAY);
-  assert.equal(learned.totalPoints, 0);
-  assert.equal(learned.solvedCount, 1);
-  assert.deepEqual(learned.solvedIds, ["question"]);
-  assert.deepEqual(learned.wrongTodayIds, ["question"]);
-  assert.deepEqual(learned.pendingAwardIds, []);
-  assert.deepEqual(
-    learned.activity.map((day) => ({ ...day })),
-    [{ date: FIRST_DAY, count: 1, points: 0 }],
-  );
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 0);
-
+  const before = store.db
+    .prepare("SELECT * FROM solves WHERE user_id=?")
+    .get(owner.id);
   const concurrent = await Promise.all(
     Array.from({ length: 8 }, () =>
       answer(store, owner.id, "question", true, SECOND_DAY),
@@ -72,156 +65,136 @@ test("a wrong-day correct receipt remains permanently unawarded on every later r
   );
   assert.equal(
     concurrent.reduce((sum, result) => sum + result.pointsEarned, 0),
-    0,
+    1,
   );
   assert.ok(concurrent.every((result) => result.alreadySolved));
-  assert.ok(concurrent.every((result) => result.scoring.mistakes === 1));
-  assert.ok(concurrent.every((result) => !result.awardWrongDayBlocked));
-  assert.ok(concurrent.every((result) => !result.awardPending));
-  const awarded = await store.stats(owner.id, SECOND_DAY, SECOND_DAY);
-  assert.equal(awarded.totalPoints, 0);
-  assert.equal(awarded.weeklyPoints, 0);
-  assert.equal(awarded.solvedCount, 1);
-  assert.deepEqual(awarded.wrongTodayIds, []);
-  assert.deepEqual(awarded.pendingAwardIds, []);
+  assert.equal(concurrent.filter((result) => !result.awardDuplicate).length, 1);
   assert.deepEqual(
-    awarded.activity.map((day) => ({ ...day })),
-    [{ date: FIRST_DAY, count: 1, points: 0 }],
+    store.db.prepare("SELECT * FROM solves WHERE user_id=?").get(owner.id),
+    before,
   );
-  assert.equal(
-    awarded.streak,
-    1,
-    "replaying an old correct receipt does not create a new learning day",
+  const stats = await store.stats(owner.id, SECOND_DAY, SECOND_DAY);
+  assert.equal(stats.totalPoints, 1);
+  assert.equal(stats.weeklyPoints, 1);
+  assert.equal(stats.solvedCount, 1);
+  assert.equal(stats.streak, 2);
+  assert.deepEqual(stats.pendingAwardIds, []);
+  assert.deepEqual(stats.wrongTodayIds, []);
+  assert.deepEqual(
+    stats.activity.map((day) => ({ ...day })),
+    [
+      { date: FIRST_DAY, count: 1, points: 0 },
+      { date: SECOND_DAY, count: 1, points: 1 },
+    ],
   );
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 1);
   assert.equal(
     (await store.rankings(owner.id, "week", SECOND_DAY)).me!.points,
-    0,
-  );
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 0);
-  assert.equal(
-    (await answer(store, owner.id, "question", true, "2026-11-10"))
-      .pointsEarned,
-    0,
+    1,
   );
 });
 
-test("wrong-day, recovery and paused zero receipts all remain final after their blockers clear", async (t) => {
+test("wrong-day and recovery blocks expire by day without retroactively changing zero receipts", async (t) => {
   const store = new SqliteStore(":memory:");
   t.after(() => store.db.close());
   const owner = await user(store);
-  await answer(store, owner.id, "both-blocks", false, FIRST_DAY, "applied");
-  await answer(store, owner.id, "both-blocks", false, FIRST_DAY, "applied");
-  const bothBlocked = await answer(
+  await answer(store, owner.id, "missed", false, FIRST_DAY, "applied");
+  await answer(store, owner.id, "different-miss", false);
+  const sameDay = await answer(
     store,
     owner.id,
-    "both-blocks",
+    "missed",
     true,
     FIRST_DAY,
     "applied",
   );
-  assert.equal(bothBlocked.pointsEarned, 0);
-  assert.equal(bothBlocked.awardBlocked, true);
-  assert.equal(bothBlocked.awardPending, false);
-  assert.equal(bothBlocked.scoring.correctStreak, 1);
-  await answer(store, owner.id, "recovery-second");
-  await answer(store, owner.id, "recovery-third");
-  assert.equal(
-    (await answer(store, owner.id, "both-blocks", true, SECOND_DAY, "applied"))
-      .pointsEarned,
-    0,
-  );
-  assert.equal(
-    (await answer(store, owner.id, "recovery-second", true, SECOND_DAY))
-      .pointsEarned,
-    0,
-  );
-
-  store.db.exec("UPDATE scoring_control SET paused=1 WHERE singleton=1");
-  await answer(store, owner.id, "paused-wrong", false);
-  const paused = await answer(store, owner.id, "paused-wrong");
-  assert.equal(paused.awardWrongDayBlocked, true);
-  assert.equal(paused.awardPaused, true);
-  assert.equal(paused.awardPending, false);
-  store.db.exec("UPDATE scoring_control SET paused=0 WHERE singleton=1");
-  assert.equal(
-    (await answer(store, owner.id, "paused-wrong", true, SECOND_DAY))
-      .pointsEarned,
-    0,
-  );
-});
-
-test("replaying a completed zero receipt never changes account recovery or reopens its award", async (t) => {
-  const store = new SqliteStore(":memory:");
-  t.after(() => store.db.close());
-  const owner = await user(store);
-  await answer(store, owner.id, "pending", false);
-  await answer(store, owner.id, "pending");
-  const retryWrong = await answer(
+  assert.equal(sameDay.pointsEarned, 0);
+  assert.equal(sameDay.scoring.correctStreak, 0);
+  for (const id of ["recovery-one", "recovery-two", "recovery-three"])
+    await answer(store, owner.id, id);
+  const next = await answer(
     store,
     owner.id,
-    "pending",
-    false,
-    SECOND_DAY,
-  );
-  assert.equal(retryWrong.alreadySolved, true);
-  assert.equal(retryWrong.scoring.mistakes, 1);
-  assert.equal(
-    (await answer(store, owner.id, "pending", true, SECOND_DAY)).pointsEarned,
-    0,
-  );
-  assert.equal(
-    (await answer(store, owner.id, "pending", true, "2026-11-10")).pointsEarned,
-    0,
-  );
-  assert.equal(
-    (await store.stats(owner.id, SECOND_DAY, "2026-11-10")).solvedCount,
-    1,
-  );
-});
-
-test("completed zero receipts cannot bypass global recovery or gain retrospective points", async (t) => {
-  const store = new SqliteStore(":memory:");
-  t.after(() => store.db.close());
-  const owner = await user(store);
-  await answer(store, owner.id, "pending", false);
-  await answer(store, owner.id, "pending");
-  await answer(store, owner.id, "second-mistake", false);
-  const blockedReplay = await answer(
-    store,
-    owner.id,
-    "pending",
+    "missed",
     true,
     SECOND_DAY,
+    "applied",
   );
-  assert.equal(blockedReplay.pointsEarned, 0);
-  assert.equal(blockedReplay.scoring.correctStreak, 0);
-  await answer(store, owner.id, "gate-zero-1");
-  await answer(store, owner.id, "gate-zero-2");
-  const recovered = await answer(store, owner.id, "gate-third");
-  assert.equal(recovered.pointsEarned, 1);
-  assert.equal(recovered.scoring.locked, false);
+  assert.equal(next.pointsEarned, 3);
+  assert.equal(next.alreadySolved, true);
   assert.equal(
-    (await answer(store, owner.id, "gate-zero-1", true, SECOND_DAY))
+    store.db
+      .prepare("SELECT points FROM solves WHERE problem_id='missed'")
+      .get()!.points,
+    0,
+  );
+  assert.equal(
+    (await answer(store, owner.id, "recovery-one", true, SECOND_DAY))
       .pointsEarned,
-    0,
+    1,
   );
-  assert.equal(
-    (await answer(store, owner.id, "pending", true, SECOND_DAY)).pointsEarned,
-    0,
-  );
-
-  store.db.exec("UPDATE scoring_control SET paused=1 WHERE singleton=1");
-  assert.equal((await answer(store, owner.id, "pause-zero")).pointsEarned, 0);
-  store.db.exec("UPDATE scoring_control SET paused=0 WHERE singleton=1");
-  assert.equal(
-    (await answer(store, owner.id, "pause-zero", true, SECOND_DAY))
-      .pointsEarned,
-    0,
-  );
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 1);
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 5);
 });
 
-test("historical pending metadata cannot change a final solve receipt or mint lifetime points", async (t) => {
+test("the first wrong answer of each new day affects account recovery once, even for an existing learning ID", async (t) => {
+  const store = new SqliteStore(":memory:");
+  t.after(() => store.db.close());
+  const owner = await user(store);
+  await answer(store, owner.id, "question", false);
+  await answer(store, owner.id, "question");
+  const wrong = await answer(store, owner.id, "question", false, SECOND_DAY);
+  assert.equal(wrong.scoring.mistakes, 2);
+  assert.equal(wrong.awardDuplicate, false);
+  assert.equal(
+    (await answer(store, owner.id, "question", false, SECOND_DAY)).scoring
+      .mistakes,
+    2,
+  );
+  const corrected = await answer(store, owner.id, "question", true, SECOND_DAY);
+  assert.equal(corrected.pointsEarned, 0);
+  assert.equal(corrected.scoring.correctStreak, 0);
+  const fresh = await answer(store, owner.id, "question", true, "2026-11-10");
+  assert.equal(fresh.pointsEarned, 0);
+  assert.equal(fresh.scoring.correctStreak, 1);
+  const stats = await store.stats(owner.id, SECOND_DAY, "2026-11-10");
+  assert.equal(stats.solvedCount, 1);
+  assert.equal(stats.streak, 3);
+});
+
+test("same-day replays cannot advance recovery or reclaim paused awards, while a later day can earn normally", async (t) => {
+  const store = new SqliteStore(":memory:");
+  t.after(() => store.db.close());
+  const owner = await user(store);
+  await answer(store, owner.id, "wrong-a", false);
+  await answer(store, owner.id, "wrong-b", false);
+  const first = await answer(store, owner.id, "recovery-a");
+  assert.equal(first.scoring.correctStreak, 1);
+  assert.equal(
+    (await answer(store, owner.id, "recovery-a")).scoring.correctStreak,
+    1,
+  );
+  await answer(store, owner.id, "recovery-b");
+  assert.equal((await answer(store, owner.id, "recovery-c")).pointsEarned, 1);
+  assert.equal(
+    (await answer(store, owner.id, "recovery-a", true, SECOND_DAY))
+      .pointsEarned,
+    1,
+  );
+  store.db.exec("UPDATE scoring_control SET paused=1 WHERE singleton=1");
+  await answer(store, owner.id, "paused", true, SECOND_DAY);
+  store.db.exec("UPDATE scoring_control SET paused=0 WHERE singleton=1");
+  assert.equal(
+    (await answer(store, owner.id, "paused", true, SECOND_DAY)).pointsEarned,
+    0,
+  );
+  assert.equal(
+    (await answer(store, owner.id, "paused", true, "2026-11-10")).pointsEarned,
+    1,
+  );
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 3);
+});
+
+test("historical pending metadata never mutates a solve; a later-day credit is a separate immutable ledger row", async (t) => {
   const store = new SqliteStore(":memory:");
   t.after(() => store.db.close());
   const owner = await user(store);
@@ -233,40 +206,39 @@ test("historical pending metadata cannot change a final solve receipt or mint li
     )
     .run(owner.id);
   const before = store.db
-    .prepare(
-      "SELECT * FROM solves WHERE user_id=? AND problem_id='old-pending'",
-    )
+    .prepare("SELECT * FROM solves WHERE user_id=?")
     .get(owner.id);
   assert.equal(
     (await answer(store, owner.id, "old-pending", true, SECOND_DAY))
       .pointsEarned,
-    0,
+    1,
+  );
+  assert.deepEqual(
+    store.db.prepare("SELECT * FROM solves WHERE user_id=?").get(owner.id),
+    before,
   );
   assert.throws(
     () =>
       store.db
-        .prepare(
-          "UPDATE solves SET points=1 WHERE user_id=? AND problem_id='old-pending'",
-        )
+        .prepare("UPDATE solves SET points=1 WHERE user_id=?")
         .run(owner.id),
     /Solve award receipts are final/,
   );
-  assert.deepEqual(
-    store.db
-      .prepare(
-        "SELECT * FROM solves WHERE user_id=? AND problem_id='old-pending'",
-      )
-      .get(owner.id),
-    before,
+  assert.throws(
+    () =>
+      store.db
+        .prepare("UPDATE daily_awards SET points=3 WHERE user_id=?")
+        .run(owner.id),
+    /Daily awards are final/,
   );
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 0);
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 1);
   assert.deepEqual(
     (await store.stats(owner.id, SECOND_DAY, SECOND_DAY)).pendingAwardIds,
     [],
   );
 });
 
-test("daily choice revisions preserve a final wrong-day zero receipt across JST midnight", async (t) => {
+test("daily choice revisions allow exactly one new award after Japanese midnight", async (t) => {
   let instant = new Date("2026-11-08T14:59:30Z");
   const app = createApp(":memory:", {
     now: () => instant,
@@ -315,7 +287,7 @@ test("daily choice revisions preserve a final wrong-day zero receipt across JST 
   assert.equal((await request("/api/stats")).totalPoints, 0);
   instant = new Date("2026-11-08T15:00:01Z");
   const retried = await submit(original, true);
-  const expected = 0;
+  const expected = { basic: 1, applied: 3, advanced: 5 }[revised.level];
   assert.equal(retried.pointsEarned, expected);
   assert.equal(retried.alreadySolved, true);
   assert.equal((await submit(revised, true)).pointsEarned, 0);

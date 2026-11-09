@@ -154,7 +154,7 @@ async function harness(t: TestContext, setup?: (path: string) => void) {
   };
 }
 
-test("a wrong-then-correct daily receipt stays permanently zero across restarts, JST midnight and concurrent old/new retries", async (t) => {
+test("a wrong-then-correct receipt stays zero today but earns once per later JST day across restarts and concurrent aliases", async (t) => {
   const h = await harness(t);
   const owner = await h.authenticate("midnight_award");
   const revised = question("2026-11-08", "advanced");
@@ -193,11 +193,11 @@ test("a wrong-then-correct daily receipt stays permanently zero across restarts,
   );
   assert.equal(
     simultaneous.filter((answer) => answer.pointsEarned > 0).length,
-    0,
+    1,
   );
   assert.equal(
     simultaneous.reduce((sum, answer) => sum + answer.pointsEarned, 0),
-    0,
+    5,
   );
   assert.ok(simultaneous.every((answer) => answer.alreadySolved));
   assert.ok(simultaneous.every((answer) => !answer.awardPending));
@@ -208,14 +208,14 @@ test("a wrong-then-correct daily receipt stays permanently zero across restarts,
         JSON.stringify(answer.scoring) === JSON.stringify(learned.scoring),
     ),
   );
-  assert.deepEqual(h.syncCalls, []);
-  assert.equal(await h.lifetime(owner), 0);
+  assert.deepEqual(h.syncCalls, [owner.id]);
+  assert.equal(await h.lifetime(owner), 5);
   const awarded = await h.stats(owner);
-  assert.equal(awarded.totalPoints, 0);
+  assert.equal(awarded.totalPoints, 5);
   assert.equal(
     awarded.weeklyPoints,
-    0,
-    "a completed zero receipt never gains a later weekly award",
+    5,
+    "the new Monday credit belongs to its actual award week",
   );
   assert.equal(awarded.solvedCount, 1);
   assert.deepEqual(awarded.levelCounts, { basic: 0, applied: 0, advanced: 1 });
@@ -223,66 +223,62 @@ test("a wrong-then-correct daily receipt stays permanently zero across restarts,
   assert.deepEqual(awarded.pendingAwardIds, []);
   assert.deepEqual(awarded.activity, [
     { date: "2026-11-08", count: 1, points: 0 },
+    { date: "2026-11-09", count: 1, points: 5 },
   ]);
-  assert.equal(awarded.streak, 1);
+  assert.equal(awarded.streak, 2);
   assert.equal(
     (await h.request("/api/rankings?period=week", undefined, owner)).body.me
       .points,
-    0,
+    5,
   );
   await h.restart();
   h.setTime("2026-11-09T15:00:00.000Z");
-  assert.equal((await h.answer(owner, revised)).pointsEarned, 0);
+  assert.equal((await h.answer(owner, revised)).pointsEarned, 5);
   assert.equal((await h.answer(owner, original)).pointsEarned, 0);
   assert.equal((await h.stats(owner)).solvedCount, 1);
-  assert.equal(await h.lifetime(owner), 0);
-  assert.deepEqual(h.syncCalls, []);
+  assert.equal(await h.lifetime(owner), 10);
+  assert.deepEqual(h.syncCalls, [owner.id, owner.id]);
 });
 
-test("a completed zero receipt never reopens while other accounts and genuinely new questions remain independent", async (t) => {
+test("a wrong replay consumes only that day's credit while other accounts and different questions remain independent", async (t) => {
   const h = await harness(t);
   const first = await h.authenticate("isolated_first");
   const second = await h.authenticate("isolated_second");
   const target = question("2026-11-08", "basic");
   const unrelated = question("2026-11-08", "applied");
-  await h.answer(first, target, false);
-  await h.answer(first, oldVersion(target));
+  assert.equal((await h.answer(first, target)).pointsEarned, 1);
   assert.equal((await h.answer(second, target)).pointsEarned, 1);
   assert.deepEqual((await h.stats(second)).wrongTodayIds, []);
   assert.deepEqual((await h.stats(second)).pendingAwardIds, []);
   assert.equal((await h.answer(first, unrelated)).pointsEarned, 3);
-  const before = (await h.stats(first)).scoring;
   h.setTime(AFTER_MIDNIGHT);
   const wrongReplay = await h.answer(first, oldVersion(target), false);
   assert.equal(wrongReplay.alreadySolved, true);
-  assert.deepEqual(
-    wrongReplay.scoring,
-    before,
-    "completed replays never alter global recovery",
-  );
+  assert.equal(wrongReplay.scoring!.mistakes, 1);
+  assert.equal(wrongReplay.scoring!.locked, false);
   const blockedAgain = await h.answer(first, target);
   assert.equal(blockedAgain.pointsEarned, 0);
-  assert.equal(blockedAgain.awardWrongDayBlocked, false);
+  assert.equal(blockedAgain.awardWrongDayBlocked, true);
   assert.equal(blockedAgain.awardPending, false);
-  assert.deepEqual((await h.stats(first)).wrongTodayIds, []);
-  assert.equal((await h.answer(second, oldVersion(target))).pointsEarned, 0);
+  assert.deepEqual((await h.stats(first)).wrongTodayIds, [canonical(target)]);
+  assert.equal((await h.answer(second, oldVersion(target))).pointsEarned, 1);
   assert.deepEqual((await h.stats(second)).wrongTodayIds, []);
   const fresh = question("2026-11-09", "advanced");
   assert.equal((await h.answer(first, fresh)).pointsEarned, 5);
   h.setTime("2026-11-09T15:00:00.000Z");
-  assert.equal((await h.answer(first, oldVersion(target))).pointsEarned, 0);
+  assert.equal((await h.answer(first, oldVersion(target))).pointsEarned, 1);
   const stats = await h.stats(first);
-  assert.equal(stats.totalPoints, 8);
+  assert.equal(stats.totalPoints, 10);
   assert.equal(stats.solvedCount, 3);
   assert.deepEqual(stats.pendingAwardIds, []);
   assert.deepEqual(stats.wrongTodayIds, []);
-  assert.equal(await h.lifetime(first), 8);
-  assert.equal(await h.lifetime(second), 1);
-  assert.equal(h.syncCalls.filter((id) => id === first.id).length, 2);
-  assert.equal(h.syncCalls.filter((id) => id === second.id).length, 1);
+  assert.equal(await h.lifetime(first), 10);
+  assert.equal(await h.lifetime(second), 2);
+  assert.equal(h.syncCalls.filter((id) => id === first.id).length, 4);
+  assert.equal(h.syncCalls.filter((id) => id === second.id).length, 2);
 });
 
-test("wrong-day, recovery and paused zero receipts stay final after all their original blockers clear", async (t) => {
+test("wrong-day, recovery and pause consume today's credit while fresh next-day attempts can earn normally", async (t) => {
   const h = await harness(t);
   const owner = await h.authenticate("gate_pause_award");
   const target = question("2026-11-08", "basic");
@@ -302,7 +298,7 @@ test("wrong-day, recovery and paused zero receipts stay final after all their or
   assert.equal(
     bothBlocked.awardPending,
     false,
-    "a simultaneous wrong-day and global gate never creates a later claim",
+    "the first wrong consumes the current day's attempt",
   );
   const permanentGate = await h.answer(owner, gateOnly);
   assert.equal(permanentGate.awardBlocked, true);
@@ -314,9 +310,10 @@ test("wrong-day, recovery and paused zero receipts stay final after all their or
   assert.equal(freshSecond.scoring!.correctStreak, 2);
   h.setTime(AFTER_MIDNIGHT);
   const replayAtThird = await h.answer(owner, target);
-  assert.equal(replayAtThird.pointsEarned, 0);
+  assert.equal(replayAtThird.pointsEarned, 1);
   assert.equal(replayAtThird.awardPending, false);
-  assert.deepEqual(replayAtThird.scoring, freshSecond.scoring);
+  assert.equal(replayAtThird.scoring!.locked, false);
+  assert.equal(replayAtThird.scoring!.correctStreak, 0);
   h.pause(true);
   const recoveryDuringPause = await h.answer(owner, pausedOnly);
   assert.equal(recoveryDuringPause.pointsEarned, 0);
@@ -330,7 +327,7 @@ test("wrong-day, recovery and paused zero receipts stay final after all their or
   const pausedReplay = await h.answer(owner, target);
   assert.equal(pausedReplay.pointsEarned, 0);
   assert.equal(pausedReplay.awardPending, false);
-  assert.equal(h.syncCalls.length, 0);
+  assert.equal(h.syncCalls.length, 1);
   h.pause(false);
   const unpausedReplay = await h.answer(owner, target);
   assert.equal(unpausedReplay.pointsEarned, 0);
@@ -338,16 +335,19 @@ test("wrong-day, recovery and paused zero receipts stay final after all their or
   h.setTime("2026-11-09T15:00:00.000Z");
   for (const permanent of [gateOnly, secondRecovery, pausedOnly, pausedWrong]) {
     const replay = await h.answer(owner, permanent);
-    assert.equal(replay.pointsEarned, 0);
+    assert.equal(
+      replay.pointsEarned,
+      { basic: 1, applied: 3, advanced: 5 }[permanent.level],
+    );
     assert.equal(replay.alreadySolved, true);
     assert.equal(replay.awardPending, false);
   }
-  assert.deepEqual(h.syncCalls, []);
-  assert.equal(await h.lifetime(owner), 0);
+  assert.deepEqual(h.syncCalls, Array(5).fill(owner.id));
+  assert.equal(await h.lifetime(owner), 13);
   assert.equal((await h.stats(owner)).solvedCount, 5);
 });
 
-test("pre-feature zero and paid receipts remain final after schema upgrade and a later API restart", async (t) => {
+test("pre-feature zero and paid receipt rows retain their dates and money while later daily credits use the new ledger", async (t) => {
   const zero = question("2026-11-07", "basic");
   const paid = question("2026-11-07", "applied");
   const h = await harness(t, (path) => {
@@ -399,21 +399,27 @@ test("pre-feature zero and paid receipts remain final after schema upgrade and a
   await h.answer(owner, zero, false);
   await h.restart();
   h.setTime(AFTER_MIDNIGHT);
-  for (const problem of [zero, paid, oldVersion(zero), oldVersion(paid)]) {
+  for (const [index, problem] of [
+    zero,
+    paid,
+    oldVersion(zero),
+    oldVersion(paid),
+  ].entries()) {
     const replay = await h.answer(owner, problem);
-    assert.equal(replay.pointsEarned, 0);
+    assert.equal(replay.pointsEarned, index === 0 ? 1 : index === 1 ? 3 : 0);
     assert.equal(replay.alreadySolved, true);
     assert.equal(replay.awardPending, false);
   }
   const stats = await h.stats(owner);
-  assert.equal(stats.totalPoints, 3);
+  assert.equal(stats.totalPoints, 7);
   assert.equal(stats.solvedCount, 2);
   assert.deepEqual(stats.activity, [
     { date: "2026-11-07", count: 2, points: 3 },
+    { date: "2026-11-09", count: 2, points: 4 },
   ]);
   assert.deepEqual(stats.pendingAwardIds, []);
-  assert.equal(await h.lifetime(owner), 3);
-  assert.equal(h.syncCalls.length, 0);
+  assert.equal(await h.lifetime(owner), 7);
+  assert.equal(h.syncCalls.length, 2);
 });
 
 test("mismatched UTC/JST solve dates are rejected without creating wrong locks, receipts or lifetime credit", async (t) => {

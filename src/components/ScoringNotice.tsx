@@ -43,7 +43,9 @@ export function ScoringNotice({
   awardUnavailable?: boolean;
 }) {
   const duplicateNotice = awardDuplicate ? (
-    <p className="scoring-duplicate">同じ問題への再加点はありません。</p>
+    <p className="scoring-duplicate">
+      この問題は今日すでに回答したため、今回は加点されません。
+    </p>
   ) : null;
   const unavailableNotice = awardUnavailable ? (
     <p className="scoring-unavailable">
@@ -57,12 +59,20 @@ export function ScoringNotice({
           ? "正解です。この問題は今日すでに間違えたため、轟は加算されません。"
           : "この問題は今日は加点されません。"}
       </p>
-      <p>同じ問題への加点は1回のみです。</p>
     </div>
   ) : null;
   const recordedNotice =
     awardPaused || awardBlocked || (wrongDayBlocked && answerCorrect) ? (
-      <p className="scoring-recorded">この問題を解き直しても加点されません。</p>
+      <p className="scoring-recorded">
+        この問題を今日解き直しても加点されません。
+      </p>
+    ) : null;
+  const nextDayNotice =
+    !awardUnavailable &&
+    (wrongDayBlocked || awardDuplicate || recordedNotice) ? (
+      <p className="scoring-next-day">
+        翌日（日本時間0:00以降）は、通常の加点条件が適用されます。
+      </p>
     ) : null;
   if (paused || awardPaused) {
     const freezeDate = freezeDateLabel(frozenAt);
@@ -87,6 +97,7 @@ export function ScoringNotice({
         {recordedNotice}
         {duplicateNotice}
         {unavailableNotice}
+        {nextDayNotice}
       </div>
     );
   }
@@ -111,7 +122,7 @@ export function ScoringNotice({
           <p className="scoring-progress">
             連続正解 {streak} / {required}
           </p>
-          <p>未正解の別々の問題が対象です。</p>
+          <p>その日に未回答の別々の問題が対象です。</p>
         </>
       )}
       {awardBlocked && (
@@ -123,6 +134,7 @@ export function ScoringNotice({
       {recordedNotice}
       {duplicateNotice}
       {unavailableNotice}
+      {nextDayNotice}
     </div>
   );
 }

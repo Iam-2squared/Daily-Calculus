@@ -42,6 +42,9 @@
 .scoring-notice > * + .scoring-unavailable {
   margin-top: 8px;
 }
+.scoring-notice .scoring-next-day {
+  margin-top: 8px;
+}
 .daily-award-rule {
   margin-top: 12px;
   color: #627658;

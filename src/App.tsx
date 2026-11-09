@@ -77,6 +77,7 @@ export default function App() {
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
   const [problems, setProblems] = useState<Problem[]>([]);
   const [date, setDate] = useState(jstToday());
+  const awardDay = useRef(date);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
@@ -132,7 +133,9 @@ export default function App() {
         api.problems(),
         api.stats(),
       ]);
+      if (version !== statsVersion.current) return;
       setProblems(daily.problems);
+      awardDay.current = daily.date;
       setDate(daily.date);
       if (version === statsVersion.current) setStats(currentStats);
     } catch (e) {
@@ -197,9 +200,16 @@ export default function App() {
     );
   }
   const answerVersion = statsVersion.current;
+  const answerDay = date;
   function recordAnswer(problem: Problem, result: AnswerResult) {
-    if (answerVersion !== statsVersion.current) return;
+    if (
+      answerVersion !== statsVersion.current ||
+      answerDay !== awardDay.current ||
+      answerDay !== jstToday()
+    )
+      return;
     const id = problem.rewardId ?? problem.id;
+    const contentId = problem.contentId ?? id;
     const update = (
       ids: string[] | undefined,
       included: boolean | undefined,
@@ -211,11 +221,21 @@ export default function App() {
       return [...next];
     };
     setStats((current) =>
-      answerVersion !== statsVersion.current
+      answerVersion !== statsVersion.current ||
+      answerDay !== awardDay.current ||
+      answerDay !== jstToday()
         ? current
         : {
             ...current,
             scoring: result.scoring ?? current.scoring,
+            attemptedTodayContentIds: result.awardAttemptedToday
+              ? [
+                  ...new Set([
+                    ...(current.attemptedTodayContentIds ?? []),
+                    contentId,
+                  ]),
+                ]
+              : current.attemptedTodayContentIds,
             wrongTodayIds: update(
               current.wrongTodayIds,
               result.awardWrongDayBlocked,
@@ -359,6 +379,7 @@ export default function App() {
               scoringPaused={stats.scoringPaused}
               scoringFrozenAt={stats.scoringFrozenAt}
               wrongTodayIds={stats.wrongTodayIds}
+              attemptedTodayContentIds={stats.attemptedTodayContentIds}
               pendingAwardIds={stats.pendingAwardIds}
               onAnswerAccepted={recordAnswer}
               onComplete={refreshStats}
@@ -454,6 +475,11 @@ export default function App() {
           scoringFrozenAt={stats.scoringFrozenAt}
           wrongToday={stats.wrongTodayIds?.includes(
             activeProblem.rewardId ?? activeProblem.id,
+          )}
+          attemptedToday={stats.attemptedTodayContentIds?.includes(
+            activeProblem.contentId ??
+              activeProblem.rewardId ??
+              activeProblem.id,
           )}
           onAnswerAccepted={recordAnswer}
           onClose={closeProblem}
@@ -586,6 +612,9 @@ function Dashboard({
               const wrongToday = stats.wrongTodayIds?.includes(
                 p.rewardId ?? p.id,
               );
+              const attemptedToday = stats.attemptedTodayContentIds?.includes(
+                p.contentId ?? p.rewardId ?? p.id,
+              );
               return (
                 <button
                   className={`problem-card ${p.level} ${done ? "solved" : ""}`}
@@ -605,10 +634,10 @@ function Dashboard({
                     <span className="points-badge">
                       {stats.scoringPaused ? (
                         "加点停止中"
-                      ) : done ? (
-                        "加点なし"
                       ) : wrongToday ? (
                         "今日は加点なし"
+                      ) : attemptedToday ? (
+                        "本日回答済み"
                       ) : (
                         <>
                           +{formatPointIncome(meta.points)}
@@ -651,7 +680,7 @@ function Dashboard({
           <span>今日の正解 {complete} / 3 問</span>
         </div>
         <p className="daily-award-rule">
-          一度間違えた問題は、その日は加点されません。日付は日本時間0:00に切り替わります。
+          同じ内容の問題は、日本時間の1日につき最初の回答だけが加点判定の対象です。最初に間違えた問題は、その日は加点されません。
         </p>
       </section>
       <div className="practice-entry surface">
@@ -967,6 +996,7 @@ function ProblemModal({
   scoringPaused,
   scoringFrozenAt,
   wrongToday = false,
+  attemptedToday = false,
   onAnswerAccepted,
   onClose,
   onComplete,
@@ -979,6 +1009,7 @@ function ProblemModal({
   scoringPaused?: boolean;
   scoringFrozenAt?: string | null;
   wrongToday?: boolean;
+  attemptedToday?: boolean;
   awardPending?: boolean;
   onAnswerAccepted: (problem: Problem, result: AnswerResult) => void;
   onClose: () => void;
@@ -1004,6 +1035,7 @@ function ProblemModal({
   const paused = Boolean(scoringPaused || result?.awardPaused);
   const frozenAt = scoringFrozenAt ?? result?.scoringFrozenAt;
   const wrongDayBlocked = result?.awardWrongDayBlocked ?? wrongToday;
+  const currentAttemptedToday = result?.awardAttemptedToday ?? attemptedToday;
   async function refresh() {
     if (!user || refreshBusy) return;
     setRefreshBusy(true);
@@ -1080,10 +1112,10 @@ function ProblemModal({
                 ? "加点停止中"
                 : result?.awardUnavailable
                   ? "加点対象外"
-                  : isSolved || result?.awardDuplicate
-                    ? "正解済み・加点なし"
-                    : wrongDayBlocked
-                      ? "今日は加点なし"
+                  : wrongDayBlocked
+                    ? "今日は加点なし"
+                    : currentAttemptedToday || result?.awardDuplicate
+                      ? "本日回答済み"
                       : `+${formatPointIncome(level.points)} 轟`}
             </span>
           </div>
@@ -1098,6 +1130,7 @@ function ProblemModal({
               paused={paused}
               frozenAt={frozenAt}
               wrongDayBlocked={wrongDayBlocked}
+              awardDuplicate={currentAttemptedToday && !wrongDayBlocked}
             />
           )}
           <div
@@ -1160,11 +1193,13 @@ function ProblemModal({
                 {user
                   ? paused
                     ? "現在は加点を停止しています。正解の学習記録は残ります。"
-                    : isSolved
-                      ? "この問題は正解済みです。復習しても加点されません。"
-                      : wrongDayBlocked
-                        ? "この問題は今日は加点されません。正解の学習記録は残ります。"
-                        : "加点条件を満たして正解すると轟が記録されます。"
+                    : wrongDayBlocked
+                      ? "この問題は今日は加点されません。正解の学習記録は残ります。"
+                      : currentAttemptedToday
+                        ? "この問題は今日すでに回答しています。加点判定は最初の回答のみです。"
+                        : isSolved
+                          ? "学習記録では正解済みですが、今日の最初の回答は通常の加点条件で判定されます。"
+                          : "加点条件を満たして正解すると轟が記録されます。"
                   : "お試しで解けます。学習記録の保存にはログインが必要です。"}
               </p>
             </>
@@ -1221,16 +1256,11 @@ function ProblemModal({
                     </MathText>
                   ))}
               </div>
-              {result.alreadySolved &&
-                result.pointsEarned === 0 &&
-                !paused &&
-                !result.awardDuplicate &&
-                !result.awardUnavailable &&
-                !wrongDayBlocked && (
-                  <p className="solver-footnote">
-                    正解済みのため、解き直しても加点されません。
-                  </p>
-                )}
+              {result.alreadySolved && (
+                <p className="solver-footnote">
+                  学習記録では正解済みの問題です。
+                </p>
+              )}
               {refreshFailed && (
                 <div className="challenge-refresh-note" role="status">
                   <p>

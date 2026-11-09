@@ -9,6 +9,7 @@ import { createApp } from "../server/app.ts";
 import { getProblems } from "../server/problems.ts";
 import { todayJST, weekStartJST, isDateKey, addDays } from "../shared/date.ts";
 import type { Database } from "../server/db.ts";
+import { createLegacyDatabase } from "./helpers/legacy-database.js";
 
 async function harness(
   clock = new Date("2026-10-28T05:00:00Z"),
@@ -240,27 +241,41 @@ test("correct answers award difficulty points once, while a question missed toda
 });
 
 test("leaderboard caps display at 25, returns own rank beyond the cap and separates weekly points", async (t) => {
-  const h = await harness();
-  t.after(() => h.close());
+  const directory = mkdtempSync(join(tmpdir(), "calculus-legacy-ranking-"));
+  const path = join(directory, "ranking.sqlite");
+  createLegacyDatabase(path, (legacy) => {
+    for (let i = 1; i <= 30; i++) {
+      const result = legacy
+        .prepare(
+          "INSERT INTO users(username,username_key,password_hash,password_salt,created_at) VALUES (?,?,?,?,?)",
+        )
+        .run(
+          `user_${String(i).padStart(2, "0")}`,
+          `user_${i}`,
+          "seed",
+          "seed",
+          "2026-10-01T00:00:00Z",
+        );
+      const id = Number(result.lastInsertRowid);
+      for (let j = 0; j < i; j++)
+        legacy
+          .prepare("INSERT INTO solves VALUES (?,?,?,?,?,?)")
+          .run(
+            id,
+            `old-${j}`,
+            "basic",
+            1,
+            "2026-10-25T14:00:00Z",
+            "2026-10-25",
+          );
+    }
+  });
+  const h = await harness(new Date("2026-10-28T05:00:00Z"), path);
+  t.after(async () => {
+    await h.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   const own = await register(h, "zz_me");
-  for (let i = 1; i <= 30; i++) {
-    const result = h.db
-      .prepare(
-        "INSERT INTO users(username,username_key,password_hash,password_salt,created_at) VALUES (?,?,?,?,?)",
-      )
-      .run(
-        `user_${String(i).padStart(2, "0")}`,
-        `user_${i}`,
-        "seed",
-        "seed",
-        "2026-10-01T00:00:00Z",
-      );
-    const id = Number(result.lastInsertRowid);
-    for (let j = 0; j < i; j++)
-      h.db
-        .prepare("INSERT INTO solves VALUES (?,?,?,?,?,?)")
-        .run(id, `old-${j}`, "basic", 1, "2026-10-25T14:00:00Z", "2026-10-25");
-  }
   let result = (
     await h.request("/api/rankings?period=all", { cookie: own.cookie })
   ).body;
@@ -331,13 +346,24 @@ test("accounts, sessions and progress survive reopening the database; streak tol
   const directory = mkdtempSync(join(tmpdir(), "daily-calculus-"));
   const path = join(directory, "progress.sqlite");
   const clock = new Date("2026-10-28T05:00:00Z");
-  const first = await harness(clock, path);
+  const first = await harness(new Date("2026-10-25T05:00:00Z"), path);
   const account = await register(first, "persistent");
-  const id = account.body.user.id;
   for (const date of ["2026-10-25", "2026-10-26", "2026-10-27"]) {
-    first.db
-      .prepare("INSERT INTO solves VALUES (?,?,?,?,?,?)")
-      .run(id, `${date}:basic`, "basic", 1, `${date}T05:00:00Z`, date);
+    first.setTime(new Date(`${date}T05:00:00Z`));
+    const problem = getProblems(date).find((p) => p.level === "basic")!;
+    assert.equal(
+      (
+        await first.request(
+          `/api/problems/${encodeURIComponent(problem.id)}/answer`,
+          {
+            method: "POST",
+            cookie: account.cookie,
+            body: { choiceIndex: problem.correctIndex },
+          },
+        )
+      ).body.pointsEarned,
+      1,
+    );
   }
   await first.close();
   const second = await harness(clock, path);

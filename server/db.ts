@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { unmappedQuestionFingerprint } from "./content-fingerprint.js";
 import {
   questionFingerprint,
   regenerateHistoricalProblem,
@@ -165,6 +166,29 @@ export function openDatabase(path: string) {
       enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0,1))
     );
     INSERT INTO content_guard(singleton,enabled) VALUES(1,0) ON CONFLICT(singleton) DO NOTHING;
+    CREATE TABLE IF NOT EXISTS daily_content_receipts (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+      attempt_date TEXT NOT NULL,
+      first_problem_id TEXT NOT NULL,
+      first_correct_at TEXT,
+      correct_problem_id TEXT,
+      PRIMARY KEY(user_id,fingerprint,attempt_date),
+      CHECK((first_correct_at IS NULL)=(correct_problem_id IS NULL))
+    );
+    CREATE INDEX IF NOT EXISTS daily_content_receipts_date ON daily_content_receipts(attempt_date,user_id);
+    CREATE TABLE IF NOT EXISTS daily_awards (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      fingerprint TEXT NOT NULL CHECK(length(fingerprint)=64 AND fingerprint NOT GLOB '*[^0-9a-f]*'),
+      award_date TEXT NOT NULL,
+      problem_id TEXT NOT NULL,
+      level TEXT NOT NULL CHECK(level IN ('basic','applied','advanced')),
+      points INTEGER NOT NULL CHECK(points=CASE level WHEN 'basic' THEN 1 WHEN 'applied' THEN 3 WHEN 'advanced' THEN 5 END),
+      awarded_at TEXT NOT NULL,
+      PRIMARY KEY(user_id,fingerprint,award_date),
+      FOREIGN KEY(user_id,problem_id) REFERENCES solves(user_id,problem_id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS daily_awards_date ON daily_awards(award_date,user_id);
   `);
   // The source watermark is independent of account/solve deletion. Only the
   // opaque, never-reused numeric ID and earned total survive account deletion.
@@ -196,12 +220,52 @@ export function openDatabase(path: string) {
         WHERE user_id=NEW.user_id AND deleted=0;
       SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
     END;
+    CREATE TRIGGER IF NOT EXISTS solve_daily_ledger_insert_guard BEFORE INSERT ON solves
+    WHEN NEW.points<>0
+    BEGIN
+      SELECT RAISE(ABORT,'New solve credits belong to the daily ledger');
+    END;
+    CREATE TRIGGER IF NOT EXISTS solve_daily_claim_insert_guard BEFORE INSERT ON solves
+    WHEN NOT EXISTS(
+      SELECT 1 FROM daily_content_receipts d
+      LEFT JOIN problem_fingerprints f ON f.problem_id=NEW.problem_id
+      WHERE d.user_id=NEW.user_id AND d.attempt_date=NEW.solved_date
+        AND (d.first_problem_id=NEW.problem_id OR d.fingerprint=f.fingerprint)
+    )
+    BEGIN
+      SELECT RAISE(ABORT,'New solves require a matching daily claim');
+    END;
+    CREATE TRIGGER IF NOT EXISTS wrong_daily_claim_insert_guard BEFORE INSERT ON wrong_attempts
+    WHEN NOT EXISTS(
+      SELECT 1 FROM daily_content_receipts d
+      LEFT JOIN problem_fingerprints f ON f.problem_id=NEW.problem_id
+      WHERE d.user_id=NEW.user_id AND d.attempt_date=NEW.wrong_date
+        AND (d.first_problem_id=NEW.problem_id OR d.fingerprint=f.fingerprint)
+    )
+    BEGIN
+      SELECT RAISE(ABORT,'Wrong attempts require a matching daily claim');
+    END;
     DROP TRIGGER IF EXISTS lifetime_solve_upgrade;
     ${replaceAwardGuard ? "DROP TRIGGER solve_award_upgrade_guard;" : ""}
     CREATE TRIGGER IF NOT EXISTS solve_award_upgrade_guard BEFORE UPDATE OF points ON solves
     WHEN NEW.points<>OLD.points
     BEGIN
       SELECT RAISE(ABORT,'Solve award receipts are final');
+    END;
+    CREATE TRIGGER IF NOT EXISTS lifetime_daily_award_insert AFTER INSERT ON daily_awards
+    BEGIN
+      UPDATE lifetime_totals SET total_points=total_points+NEW.points
+        WHERE user_id=NEW.user_id AND deleted=0;
+      SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS daily_award_update_guard BEFORE UPDATE ON daily_awards
+    BEGIN
+      SELECT RAISE(ABORT,'Daily awards are final');
+    END;
+    CREATE TRIGGER IF NOT EXISTS daily_award_delete_guard BEFORE DELETE ON daily_awards
+    WHEN EXISTS(SELECT 1 FROM users WHERE id=OLD.user_id)
+    BEGIN
+      SELECT RAISE(ABORT,'Daily awards are final');
     END;
     CREATE TRIGGER IF NOT EXISTS lifetime_user_delete AFTER DELETE ON users
     BEGIN
@@ -245,6 +309,36 @@ export function openDatabase(path: string) {
         insertMapping.run(id, fingerprint);
       }
       insertClaim.run(row.user_id, fingerprint, id, row.first_date);
+    }
+    const insertDayClaim = db.prepare(`
+      INSERT INTO daily_content_receipts(user_id,fingerprint,attempt_date,first_problem_id,first_correct_at,correct_problem_id)
+      VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,fingerprint,attempt_date) DO UPDATE SET
+        first_correct_at=excluded.first_correct_at,correct_problem_id=excluded.correct_problem_id
+      WHERE excluded.first_correct_at IS NOT NULL AND (daily_content_receipts.first_correct_at IS NULL
+        OR excluded.first_correct_at<daily_content_receipts.first_correct_at)
+    `);
+    for (const row of db
+      .prepare(
+        `
+      SELECT s.user_id,s.problem_id,s.solved_date AS attempt_date,s.solved_at AS correct_at FROM solves s
+      UNION ALL SELECT w.user_id,w.problem_id,w.wrong_date,NULL FROM wrong_attempts w
+      UNION ALL SELECT a.user_id,a.problem_id,a.award_date,a.awarded_at FROM solve_awards a WHERE a.award_date IS NOT NULL
+      UNION ALL SELECT c.user_id,c.first_problem_id,c.first_seen_date,NULL FROM content_receipts c
+      ORDER BY attempt_date,problem_id
+    `,
+      )
+      .all()) {
+      const id = String(row.problem_id);
+      const fingerprint =
+        known.get(id)?.fingerprint || unmappedQuestionFingerprint(id);
+      insertDayClaim.run(
+        row.user_id,
+        fingerprint,
+        row.attempt_date,
+        id,
+        row.correct_at,
+        row.correct_at == null ? null : id,
+      );
     }
     db.exec("COMMIT");
   } catch (error) {

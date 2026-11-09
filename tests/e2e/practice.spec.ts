@@ -36,7 +36,7 @@ test("registration, saved points, calendar and ranking survive legacy session-on
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
   await expect(page.locator(".answer-result")).toContainText(
-    "同じ問題への再加点はありません。",
+    "この問題は今日すでに回答したため、今回は加点されません。",
   );
   await page
     .getByRole("button", { name: "閉じる", exact: true })

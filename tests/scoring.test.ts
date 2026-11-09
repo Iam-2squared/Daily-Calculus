@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { once } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import { SqliteStore } from "../server/store.js";
 import { createApp } from "../server/app.js";
@@ -8,6 +11,7 @@ import { getProblems } from "../server/problems.js";
 import { Challenges } from "../server/challenges.js";
 import { questionFingerprint } from "../server/question-identity.js";
 import type { Activity, Level, ScoringStatus } from "../shared/types.js";
+import { createLegacyDatabase } from "./helpers/legacy-database.js";
 
 const TODAY = "2026-11-09";
 const state = (mistakes: number, correctStreak = 0): ScoringStatus => ({
@@ -220,14 +224,28 @@ test("a failed recovery transaction rolls back the solve, lifetime income and sc
 });
 
 test("today-only voids retain all learning receipts and gross lifetime totals while removing only today's visible scores", async (t) => {
-  const store = new SqliteStore(":memory:");
-  t.after(() => store.db.close());
-  const first = await user(store, "first");
-  const other = await user(store, "other");
-  await record(store, first.id, "past", true, "basic", "2026-11-08");
-  await record(store, first.id, "today-applied", true, "applied");
-  await record(store, first.id, "today-advanced", true, "advanced");
-  await record(store, other.id, "other-today");
+  const directory = mkdtempSync(join(tmpdir(), "calculus-old-voids-")),
+    path = join(directory, "history.sqlite");
+  createLegacyDatabase(path, (legacy) => {
+    const insertUser = legacy.prepare("INSERT INTO users VALUES(?,?,?,?,?,?)");
+    for (const [id, name] of [
+      [1, "first"],
+      [2, "other"],
+    ] as const)
+      insertUser.run(id, name, name, "hash", "salt", `${TODAY}T05:00:00Z`);
+    const insert = legacy.prepare("INSERT INTO solves VALUES(?,?,?,?,?,?)");
+    insert.run(1, "past", "basic", 1, "2026-11-08T05:00:00Z", "2026-11-08");
+    insert.run(1, "today-applied", "applied", 3, `${TODAY}T05:00:00Z`, TODAY);
+    insert.run(1, "today-advanced", "advanced", 5, `${TODAY}T05:00:00Z`, TODAY);
+    insert.run(2, "other-today", "basic", 1, `${TODAY}T05:00:00Z`, TODAY);
+  });
+  const store = new SqliteStore(path);
+  t.after(() => {
+    store.db.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const first = { id: 1 },
+    other = { id: 2 };
   const gross = await store.lifetimeTotals([first.id, other.id]);
   const voidToday = store.db.prepare(
     "INSERT INTO scoring_voids(user_id,problem_id,original_points,reason) SELECT user_id,problem_id,points,'Nov9 authorized reset' FROM solves WHERE solved_date=? AND points>0 ON CONFLICT(user_id,problem_id) DO NOTHING",

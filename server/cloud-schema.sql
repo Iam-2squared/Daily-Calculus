@@ -268,6 +268,176 @@ end;
 $content_import$;
 revoke all on function daily_calculus.enable_question_content_guard(jsonb) from public,anon,authenticated;
 
+create table if not exists daily_calculus.lifetime_totals (
+  user_id integer primary key check (user_id > 0),
+  total_points bigint not null default 0 check (total_points between 0 and 1000000000),
+  deleted boolean not null default false
+);
+alter table daily_calculus.lifetime_totals enable row level security;
+revoke all on daily_calculus.lifetime_totals from public, anon, authenticated;
+
+insert into daily_calculus.lifetime_totals(user_id,total_points,deleted)
+select u.id, coalesce(sum(s.points),0),false
+from daily_calculus.users u left join daily_calculus.solves s on s.user_id=u.id
+group by u.id
+on conflict (user_id) do nothing;
+
+create or replace function daily_calculus.track_lifetime_totals()
+returns trigger language plpgsql security definer set search_path = ''
+as $lifetime_trigger$
+begin
+  if tg_table_name = 'users' and tg_op = 'INSERT' then
+    insert into daily_calculus.lifetime_totals(user_id) values(new.id);
+    return new;
+  elsif tg_table_name = 'users' and tg_op = 'DELETE' then
+    update daily_calculus.lifetime_totals set deleted=true where user_id=old.id;
+    return old;
+  elsif tg_table_name = 'solves' and tg_op = 'INSERT' then
+    update daily_calculus.lifetime_totals set total_points=total_points+new.points
+    where user_id=new.user_id and not deleted;
+    if not found then raise exception 'Missing lifetime source'; end if;
+    return new;
+  end if;
+  raise exception 'Invalid lifetime source operation';
+end;
+$lifetime_trigger$;
+revoke all on function daily_calculus.track_lifetime_totals() from public, anon, authenticated;
+
+drop trigger if exists dc_lifetime_user_insert on daily_calculus.users;
+create trigger dc_lifetime_user_insert after insert on daily_calculus.users
+for each row execute function daily_calculus.track_lifetime_totals();
+drop trigger if exists dc_lifetime_user_delete on daily_calculus.users;
+create trigger dc_lifetime_user_delete after delete on daily_calculus.users
+for each row execute function daily_calculus.track_lifetime_totals();
+drop trigger if exists dc_lifetime_solve_insert on daily_calculus.solves;
+create trigger dc_lifetime_solve_insert after insert on daily_calculus.solves
+for each row execute function daily_calculus.track_lifetime_totals();
+
+
+-- The first attempt consumes scoring only for this Japanese calendar day.
+-- Old global content_receipts remain an immutable historical audit source.
+create table if not exists daily_calculus.daily_content_receipts (
+  user_id integer not null references daily_calculus.users(id) on delete cascade,
+  fingerprint text not null check(fingerprint ~ '^[0-9a-f]{64}$'),
+  attempt_date date not null check(isfinite(attempt_date)),
+  first_problem_id text not null check(char_length(first_problem_id) between 1 and 80),
+  first_correct_at timestamptz,
+  correct_problem_id text check(char_length(correct_problem_id) between 1 and 80),
+  primary key(user_id,fingerprint,attempt_date),
+  check((first_correct_at is null)=(correct_problem_id is null)),
+  check(first_correct_at is null or (isfinite(first_correct_at) and attempt_date=(first_correct_at at time zone 'Asia/Tokyo')::date))
+);
+create index if not exists dc_daily_content_date_user on daily_calculus.daily_content_receipts(attempt_date,user_id);
+create table if not exists daily_calculus.daily_awards (
+  user_id integer not null references daily_calculus.users(id) on delete cascade,
+  fingerprint text not null check(fingerprint ~ '^[0-9a-f]{64}$'),
+  award_date date not null,
+  problem_id text not null,
+  level text not null check(level in ('basic','applied','advanced')),
+  points integer not null check((level='basic' and points=1) or (level='applied' and points=3) or (level='advanced' and points=5)),
+  awarded_at timestamptz not null check(isfinite(awarded_at)),
+  primary key(user_id,fingerprint,award_date),
+  foreign key(user_id,problem_id) references daily_calculus.solves(user_id,problem_id) on delete cascade,
+  check(award_date=(awarded_at at time zone 'Asia/Tokyo')::date)
+);
+create index if not exists dc_daily_awards_date_user on daily_calculus.daily_awards(award_date,user_id);
+alter table daily_calculus.daily_content_receipts enable row level security;
+alter table daily_calculus.daily_awards enable row level security;
+revoke all on daily_calculus.daily_content_receipts,daily_calculus.daily_awards from public,anon,authenticated;
+
+-- Backfill eligibility markers only. No historical financial receipt, visible
+-- cancellation, lifetime total, or external wallet watermark is rewritten.
+do $daily_coverage$
+begin
+  if exists(select 1 from daily_calculus.solves s left join daily_calculus.problem_fingerprints m on m.problem_id=s.problem_id where m.problem_id is null)
+     or exists(select 1 from daily_calculus.wrong_attempts w left join daily_calculus.problem_fingerprints m on m.problem_id=w.problem_id where m.problem_id is null) then
+    raise exception 'Historical content mappings are incomplete; stop daily scoring migration';
+  end if;
+end;
+$daily_coverage$;
+with attempts as(
+  select s.user_id,m.fingerprint,s.solved_date as day,s.problem_id from daily_calculus.solves s join daily_calculus.problem_fingerprints m on m.problem_id=s.problem_id
+  union all
+  select w.user_id,m.fingerprint,w.wrong_date,w.problem_id from daily_calculus.wrong_attempts w join daily_calculus.problem_fingerprints m on m.problem_id=w.problem_id
+  union all
+  select a.user_id,m.fingerprint,a.award_date,a.problem_id from daily_calculus.solve_awards a join daily_calculus.problem_fingerprints m on m.problem_id=a.problem_id where a.award_date is not null
+  union all
+  select c.user_id,c.fingerprint,c.first_seen_date,c.first_problem_id from daily_calculus.content_receipts c
+),first_attempts as(
+  select distinct on(user_id,fingerprint,day) user_id,fingerprint,day,problem_id
+    from attempts order by user_id,fingerprint,day,problem_id collate "C"
+)
+insert into daily_calculus.daily_content_receipts(user_id,fingerprint,attempt_date,first_problem_id)
+  select user_id,fingerprint,day,problem_id from first_attempts on conflict do nothing;
+with corrects as(
+  select s.user_id,m.fingerprint,s.solved_date as day,s.problem_id,s.solved_at as correct_at from daily_calculus.solves s join daily_calculus.problem_fingerprints m on m.problem_id=s.problem_id
+  union all
+  select a.user_id,m.fingerprint,a.award_date,a.problem_id,a.awarded_at from daily_calculus.solve_awards a join daily_calculus.problem_fingerprints m on m.problem_id=a.problem_id where a.award_date is not null
+),first_corrects as(
+  select distinct on(user_id,fingerprint,day) user_id,fingerprint,day,problem_id,correct_at
+    from corrects order by user_id,fingerprint,day,correct_at,problem_id collate "C"
+)
+update daily_calculus.daily_content_receipts c set first_correct_at=f.correct_at,correct_problem_id=f.problem_id
+  from first_corrects f where c.user_id=f.user_id and c.fingerprint=f.fingerprint and c.attempt_date=f.day and c.first_correct_at is null;
+
+-- New credits have their own append-only receipt; old solves.points stay final.
+create or replace function daily_calculus.track_daily_award_income()
+returns trigger language plpgsql security definer set search_path='' as $daily_income$
+begin
+  update daily_calculus.lifetime_totals set total_points=total_points+new.points
+    where user_id=new.user_id and not deleted;
+  if not found then raise exception 'Missing lifetime source'; end if;
+  return new;
+end;
+$daily_income$;
+revoke all on function daily_calculus.track_daily_award_income() from public,anon,authenticated;
+drop trigger if exists dc_daily_award_income on daily_calculus.daily_awards;
+create trigger dc_daily_award_income after insert on daily_calculus.daily_awards
+for each row execute function daily_calculus.track_daily_award_income();
+create or replace function daily_calculus.protect_daily_awards()
+returns trigger language plpgsql set search_path='' as $daily_immutable$
+begin
+  -- The account deletion FK may remove personal receipts after its parent row
+  -- disappears. The opaque gross-income tombstone remains in lifetime_totals.
+  if tg_op='DELETE' and not exists(select 1 from daily_calculus.users where id=old.user_id) then return old; end if;
+  raise exception 'Daily award receipts are immutable' using errcode='23514';
+end;
+$daily_immutable$;
+revoke all on function daily_calculus.protect_daily_awards() from public,anon,authenticated;
+drop trigger if exists dc_daily_awards_immutable on daily_calculus.daily_awards;
+create trigger dc_daily_awards_immutable before update or delete on daily_calculus.daily_awards
+for each row execute function daily_calculus.protect_daily_awards();
+
+-- A cached pre-cutover RPC may resume after the migration lock is released.
+-- Require the new daily claim protocol and reject every new legacy positive
+-- solve, while leaving all pre-existing positive financial rows untouched.
+create or replace function daily_calculus.require_daily_attempt_before_legacy_write()
+returns trigger language plpgsql set search_path='' as $daily_write_guard$
+declare v_day date;v_fingerprint text;
+begin
+  if tg_table_name='solves' then
+    if new.points<>0 then raise exception 'Future learning receipts must have zero points' using errcode='23514'; end if;
+    v_day:=new.solved_date;
+  elsif tg_table_name='wrong_attempts' then
+    v_day:=new.wrong_date;
+  else raise exception 'Invalid daily learning operation';
+  end if;
+  select fingerprint into v_fingerprint from daily_calculus.problem_fingerprints where problem_id=new.problem_id;
+  if not exists(select 1 from daily_calculus.daily_content_receipts c where c.user_id=new.user_id and c.attempt_date=v_day
+    and (c.fingerprint=v_fingerprint or c.first_problem_id=new.problem_id)) then
+    raise exception 'A daily attempt claim is required before learning writes' using errcode='23514';
+  end if;
+  return new;
+end;
+$daily_write_guard$;
+revoke all on function daily_calculus.require_daily_attempt_before_legacy_write() from public,anon,authenticated;
+drop trigger if exists dc_new_solves_daily_protocol on daily_calculus.solves;
+create trigger dc_new_solves_daily_protocol before insert on daily_calculus.solves
+for each row execute function daily_calculus.require_daily_attempt_before_legacy_write();
+drop trigger if exists dc_new_wrongs_daily_protocol on daily_calculus.wrong_attempts;
+create trigger dc_new_wrongs_daily_protocol before insert on daily_calculus.wrong_attempts
+for each row execute function daily_calculus.require_daily_attempt_before_legacy_write();
+
 alter table daily_calculus.scoring_voids enable row level security;
 alter table daily_calculus.scoring_state enable row level security;
 
@@ -455,17 +625,24 @@ begin
       return pg_catalog.jsonb_build_object('pointsEarned',0,'alreadySolved',v_exists,
         'scoring',pg_catalog.jsonb_build_object('mistakes',v_mistakes,'correctStreak',v_correct_streak,'requiredCorrectStreak',3,'locked',v_mistakes=2),
         'awardBlocked',false,'awardPaused',false,'awardWrongDayBlocked',false,
-        'awardPending',false,'awardDuplicate',false,'awardUnavailable',true,'scoringFrozenAt',v_frozen_at);
+        'awardPending',false,'awardDuplicate',false,'awardAttemptedToday',false,'awardUnavailable',true,'scoringFrozenAt',v_frozen_at);
     end if;
-    v_duplicate:=false;
-    if v_fingerprint is not null then
+    -- Only unguarded local/legacy fixtures may fall back to an ID identity.
+    -- Production's enabled guard returned above for any unknown missing key.
+    v_fingerprint:=coalesce(v_fingerprint,pg_catalog.encode(pg_catalog.sha256(
+      pg_catalog.convert_to('daily-calculus:unmapped-id:v1:'||v_problem_id,'UTF8')),'hex'));
+    -- Keep the nonfinancial global audit claim too. A cached old RPC resumed
+    -- after cutover then sees a duplicate and cannot progress the gate again.
+    if v_known_fingerprint is not null then
       insert into daily_calculus.content_receipts(user_id,fingerprint,first_problem_id,first_seen_date)
         values(v_user_id,v_fingerprint,v_problem_id,v_answer_date) on conflict(user_id,fingerprint) do nothing;
-      get diagnostics v_changed=row_count;
-      v_duplicate:=v_changed=0;
     end if;
-    -- Secret-bound c4 challenges and daily IDs may score. Public-seed legacy
-    -- challenges still reserve their content, so a new token cannot re-credit it.
+    insert into daily_calculus.daily_content_receipts(user_id,fingerprint,attempt_date,first_problem_id)
+      values(v_user_id,v_fingerprint,v_answer_date,v_problem_id) on conflict(user_id,fingerprint,attempt_date) do nothing;
+    get diagnostics v_changed=row_count;
+    v_duplicate:=v_changed=0;
+    -- Secret-bound c4 challenges and daily IDs may score once per content/day.
+    -- Public-seed legacy challenges remain unranked and consume today's claim.
     v_award_eligible:=v_problem_id !~ '^c[123][pt]\.'
       and p_payload->'awardEligible' is distinct from 'false'::jsonb;
     v_gate_eligible:=v_award_eligible and not v_duplicate;
@@ -478,25 +655,33 @@ begin
         (w.problem_id=v_problem_id or (v_fingerprint is not null and wm.fingerprint=v_fingerprint))) into v_wrong_today;
     v_awarded_points:=0;v_award_blocked:=false;v_award_paused:=false;v_wrong_day_blocked:=v_wrong_today;
     if not (p_payload->>'correct')::boolean then
-      if not v_exists then
+      if not v_duplicate then
         insert into daily_calculus.wrong_attempts(user_id,problem_id,wrong_date)
           values(v_user_id,v_problem_id,v_answer_date) on conflict do nothing;
         v_wrong_today:=true;v_wrong_day_blocked:=true;
       end if;
-      if not v_exists and v_gate_eligible then
+      if v_gate_eligible then
         v_mistakes:=least(2,v_mistakes+1);v_correct_streak:=0;
         update daily_calculus.scoring_state set mistakes=v_mistakes,correct_streak=v_correct_streak where user_id=v_user_id;
       end if;
-    elsif not v_exists then
+    else
       v_award_blocked:=v_gate_eligible and v_mistakes=2 and v_correct_streak<2;
       v_award_paused:=v_paused;
       v_awarded_points:=case when not v_gate_eligible or v_paused or v_award_blocked or v_wrong_today then 0 else v_points end;
-      insert into daily_calculus.solves(user_id,problem_id,level,points,solved_at,solved_date)
-        values(v_user_id,v_problem_id,v_level,v_awarded_points,v_answered_at,v_answer_date);
-      insert into daily_calculus.solve_awards(user_id,problem_id,pending,award_date,awarded_at)
-        values(v_user_id,v_problem_id,false,
-          case when v_awarded_points>0 then v_answer_date else null end,
-          case when v_awarded_points>0 then v_answered_at else null end);
+      if not v_exists then
+        -- First-learning identity remains unique and immutable. Every new
+        -- monetary credit is stored in the separate append-only daily ledger.
+        insert into daily_calculus.solves(user_id,problem_id,level,points,solved_at,solved_date)
+          values(v_user_id,v_problem_id,v_level,0,v_answered_at,v_answer_date);
+        insert into daily_calculus.solve_awards(user_id,problem_id,pending,award_date,awarded_at)
+          values(v_user_id,v_problem_id,false,null,null);
+      end if;
+      update daily_calculus.daily_content_receipts set first_correct_at=v_answered_at,correct_problem_id=v_problem_id
+        where user_id=v_user_id and fingerprint=v_fingerprint and attempt_date=v_answer_date and first_correct_at is null;
+      if v_awarded_points>0 then
+        insert into daily_calculus.daily_awards(user_id,fingerprint,award_date,problem_id,level,points,awarded_at)
+          values(v_user_id,v_fingerprint,v_answer_date,v_problem_id,v_level,v_awarded_points,v_answered_at);
+      end if;
       if v_gate_eligible and v_mistakes=2 and v_correct_streak<2 then
         v_correct_streak:=v_correct_streak+1;
       elsif v_gate_eligible and v_mistakes=2 then
@@ -509,7 +694,7 @@ begin
       'scoring',pg_catalog.jsonb_build_object('mistakes',v_mistakes,'correctStreak',v_correct_streak,'requiredCorrectStreak',3,'locked',v_mistakes=2),
       'awardBlocked',v_award_blocked,'awardPaused',v_award_paused,
       'awardWrongDayBlocked',v_wrong_day_blocked,'awardPending',false,
-      'awardDuplicate',v_duplicate,'awardUnavailable',not v_award_eligible,'scoringFrozenAt',v_frozen_at
+      'awardDuplicate',v_duplicate,'awardAttemptedToday',true,'awardUnavailable',not v_award_eligible,'scoringFrozenAt',v_frozen_at
     );
 
   when 'stats' then
@@ -518,9 +703,11 @@ begin
     select c.paused,c.frozen_at into v_paused,v_frozen_at
       from daily_calculus.scoring_control c where c.singleton=true;
     select pg_catalog.jsonb_build_object(
-      'totalPoints',coalesce(sum(case when sv.user_id is null then s.points else 0 end),0),
+      'totalPoints',coalesce(sum(case when sv.user_id is null then s.points else 0 end),0)+
+        coalesce((select sum(da.points) from daily_calculus.daily_awards da where da.user_id=v_user_id),0),
       'weeklyPoints',coalesce(sum(case when sv.user_id is null then s.points else 0 end)
-        filter(where coalesce(sa.award_date,s.solved_date)>=v_week),0),
+        filter(where coalesce(sa.award_date,s.solved_date)>=v_week),0)+
+        coalesce((select sum(da.points) from daily_calculus.daily_awards da where da.user_id=v_user_id and da.award_date>=v_week),0),
       'solvedCount',count(*),'streak',0,
       'scoringPaused',coalesce(v_paused,false),'scoringFrozenAt',v_frozen_at,
       'scoring',coalesce((select pg_catalog.jsonb_build_object(
@@ -539,6 +726,8 @@ begin
         where w.user_id=v_user_id and w.wrong_date=(p_payload->>'today')::date
       ) ids),'[]'::jsonb),
       'pendingAwardIds','[]'::jsonb,
+      'attemptedTodayContentIds',coalesce((select pg_catalog.jsonb_agg(c.fingerprint order by c.fingerprint)
+        from daily_calculus.daily_content_receipts c where c.user_id=v_user_id and c.attempt_date=(p_payload->>'today')::date),'[]'::jsonb),
       'activity',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
         'date',a.day,'count',a.correct_count,'points',a.points) order by a.day) from (
         select events.day,sum(events.correct_count) as correct_count,sum(events.points) as points from (
@@ -549,11 +738,26 @@ begin
             from daily_calculus.solve_awards la join daily_calculus.solves ls on ls.user_id=la.user_id and ls.problem_id=la.problem_id
             where la.user_id=v_user_id and la.award_date<>ls.solved_date group by la.award_date
           union all
+          select c.attempt_date as day,count(*) as correct_count,0::bigint as points
+            from daily_calculus.daily_content_receipts c where c.user_id=v_user_id and c.first_correct_at is not null
+              and not exists(select 1 from daily_calculus.solves counted
+                left join daily_calculus.problem_fingerprints cm on cm.problem_id=counted.problem_id
+                where counted.user_id=c.user_id and counted.solved_date=c.attempt_date and
+                  (cm.fingerprint=c.fingerprint or counted.problem_id=c.correct_problem_id))
+              and not exists(select 1 from daily_calculus.solve_awards ca
+                left join daily_calculus.problem_fingerprints cm on cm.problem_id=ca.problem_id
+                where ca.user_id=c.user_id and ca.award_date=c.attempt_date and
+                  (cm.fingerprint=c.fingerprint or ca.problem_id=c.correct_problem_id))
+            group by c.attempt_date
+          union all
           select coalesce(la.award_date,ls.solved_date) as day,0::bigint as correct_count,
             sum(case when lv.user_id is null then ls.points else 0 end) as points
             from daily_calculus.solves ls left join daily_calculus.solve_awards la on la.user_id=ls.user_id and la.problem_id=ls.problem_id
             left join daily_calculus.scoring_voids lv on lv.user_id=ls.user_id and lv.problem_id=ls.problem_id
             where ls.user_id=v_user_id group by coalesce(la.award_date,ls.solved_date)
+          union all
+          select da.award_date as day,0::bigint as correct_count,sum(da.points) as points
+            from daily_calculus.daily_awards da where da.user_id=v_user_id group by da.award_date
         ) events group by events.day
       ) a),'[]'::jsonb),
       'solvedIds',coalesce(pg_catalog.jsonb_agg(s.problem_id order by s.solved_at desc),'[]'::jsonb),
@@ -572,13 +776,17 @@ begin
     if v_period is null or v_period not in ('all', 'week') then
       raise exception 'Invalid ranking period' using errcode = '22023';
     end if;
-    with totals as (
-      select u.id, u.username,
-             coalesce(sum(case when sv.user_id is null and (v_period='all' or coalesce(sa.award_date,s.solved_date)>=v_week)
-               then s.points else 0 end),0) as points
-        from daily_calculus.users as u left join daily_calculus.solves as s on s.user_id=u.id
-        left join daily_calculus.solve_awards as sa on sa.user_id=s.user_id and sa.problem_id=s.problem_id
-        left join daily_calculus.scoring_voids as sv on sv.user_id=s.user_id and sv.problem_id=s.problem_id
+    with credits as(
+      select s.user_id,coalesce(sa.award_date,s.solved_date) as award_date,
+        case when sv.user_id is null then s.points else 0 end as points
+        from daily_calculus.solves s
+        left join daily_calculus.solve_awards sa on sa.user_id=s.user_id and sa.problem_id=s.problem_id
+        left join daily_calculus.scoring_voids sv on sv.user_id=s.user_id and sv.problem_id=s.problem_id
+      union all
+      select da.user_id,da.award_date,da.points from daily_calculus.daily_awards da
+    ),totals as (
+      select u.id,u.username,coalesce(sum(c.points),0) as points
+        from daily_calculus.users u left join credits c on c.user_id=u.id and (v_period='all' or c.award_date>=v_week)
         group by u.id
     ), ranked as (
       select t.*, rank() over(order by t.points desc) as rank from totals as t

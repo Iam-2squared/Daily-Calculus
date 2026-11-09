@@ -54,7 +54,7 @@ async function noOverflow(page: Page) {
   );
 }
 
-test("a wrong daily answer records a zero-point correct receipt that never earns on later archived replays on mobile", async ({
+test("a wrong answer earns nothing that day while the same archived question can earn once on the next Japanese day on mobile", async ({
   browser,
 }) => {
   test.setTimeout(60_000);
@@ -103,6 +103,8 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
     );
     const problem = daily.problems[basicIndex];
     const canonicalId = problem.rewardId ?? problem.id;
+    const contentId = (problem as Problem & { contentId: string }).contentId;
+    expect(contentId).toMatch(/^[0-9a-f]{64}$/);
     const card = page.locator(".problem-card.basic");
     await card.click();
     const wrong = await answerDaily(page, problem, false);
@@ -111,15 +113,14 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
       pointsEarned: 0,
       awardWrongDayBlocked: true,
       awardPending: false,
+      awardAttemptedToday: true,
+      awardDuplicate: false,
       scoring: { mistakes: 1, correctStreak: 0, locked: false },
     });
     await expect(wrong.dialog.locator(".scoring-wrong-day-message")).toHaveText(
       "この問題は今日は加点されません。",
     );
-    await expect(wrong.dialog.locator(".scoring-wrong-day")).toContainText(
-      "同じ問題への加点は1回のみです。",
-    );
-    await expect(wrong.dialog.locator(".scoring-wrong-day")).not.toContainText(
+    await expect(wrong.dialog.locator(".scoring-next-day")).toContainText(
       "翌日",
     );
     await expect(wrong.dialog.locator(".solver-points")).toHaveText(
@@ -141,6 +142,8 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
       alreadySolved: false,
       awardWrongDayBlocked: true,
       awardPending: false,
+      awardAttemptedToday: true,
+      awardDuplicate: true,
     });
     await expect(
       corrected.dialog.locator(".scoring-wrong-day-message"),
@@ -150,13 +153,16 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
     await expect(corrected.dialog.locator(".result-heading")).not.toContainText(
       /\+\s*[\d,]+\s*轟/,
     );
-    await expect(corrected.dialog.locator(".scoring-recorded")).toHaveText(
+    await expect(corrected.dialog.locator(".answer-result")).not.toContainText(
       "この問題を解き直しても加点されません。",
+    );
+    await expect(corrected.dialog.locator(".scoring-duplicate")).toHaveText(
+      "この問題は今日すでに回答したため、今回は加点されません。",
     );
     await closeProblem(page);
     await page.reload();
     await expect(card).toHaveClass(/solved/);
-    await expect(card.locator(".points-badge")).toHaveText("加点なし");
+    await expect(card.locator(".points-badge")).toHaveText("今日は加点なし");
     const firstStats = (await (
       await context.request.get("/api/stats")
     ).json()) as Stats;
@@ -166,6 +172,7 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
       solvedIds: [canonicalId],
       wrongTodayIds: [canonicalId],
       pendingAwardIds: [],
+      attemptedTodayContentIds: [contentId],
       activity: [{ date: FIRST_DAY, count: 1, points: 0 }],
     });
     await expect(page.locator(".calendar-day.today")).toHaveAttribute(
@@ -173,8 +180,8 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
       /1問正解、0轟/,
     );
 
-    // A correct answer is a permanent learning receipt even when it earns zero.
-    // The day change clears the wrong-day warning, never the solved identity.
+    // Learning remains recorded once; each Japanese day's first attempt has
+    // its own eligibility. Yesterday's failed attempt cannot block today.
     now = AFTER_MIDNIGHT;
     await page.clock.setFixedTime(new Date(AFTER_MIDNIGHT));
     await page.goto("/#archive");
@@ -184,38 +191,38 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
     const archivedCard = page.locator(".archive-card").nth(basicIndex);
     await expect(archivedCard.getByRole("heading")).toHaveText(problem.title);
     await expect(archivedCard).toContainText("正解済み");
-    await expect(archivedCard).toContainText("加点なし");
-    await expect(archivedCard).not.toContainText("加点対象（未獲得）");
+    await expect(archivedCard).toContainText("10,000");
     await expect(archivedCard).not.toContainText("今日は加点なし");
     await archivedCard.click();
     const recorded = page.getByRole("dialog");
-    await expect(recorded.locator(".solver-points")).toHaveText(
-      "正解済み・加点なし",
-    );
+    await expect(recorded.locator(".solver-points")).toContainText("10,000");
     await expect(recorded.locator(".scoring-pending")).toHaveCount(0);
     await expect(recorded.locator(".solver-footnote")).toHaveText(
-      "この問題は正解済みです。復習しても加点されません。",
+      "学習記録では正解済みですが、今日の最初の回答は通常の加点条件で判定されます。",
     );
     await expect(recorded.locator(".scoring-wrong-day")).toHaveCount(0);
     const laterCorrect = await answerDaily(page, problem, true);
     expect(laterCorrect.result).toMatchObject({
       correct: true,
-      pointsEarned: 0,
+      pointsEarned: 1,
       alreadySolved: true,
       awardWrongDayBlocked: false,
       awardPending: false,
+      awardAttemptedToday: true,
+      awardDuplicate: false,
       scoring: { mistakes: 1, correctStreak: 0, locked: false },
     });
-    await expect(
-      laterCorrect.dialog.locator(".result-heading"),
-    ).not.toContainText(/\+\s*[\d,]+\s*轟/);
-    await expect(laterCorrect.dialog.locator(".scoring-duplicate")).toHaveText(
-      "同じ問題への再加点はありません。",
+    await expect(laterCorrect.dialog.locator(".result-heading")).toContainText(
+      "+10,000 轟",
+    );
+    await expect(laterCorrect.dialog.locator(".scoring-duplicate")).toHaveCount(
+      0,
     );
     await noOverflow(page);
     await closeProblem(page);
     await expect(archivedCard).toContainText("正解済み");
     await expect(archivedCard).not.toContainText("加点対象（未獲得）");
+    await expect(archivedCard).toContainText("本日回答済み");
 
     await archivedCard.click();
     const replay = await answerDaily(page, problem, true);
@@ -224,26 +231,49 @@ test("a wrong daily answer records a zero-point correct receipt that never earns
       pointsEarned: 0,
       alreadySolved: true,
       awardPending: false,
+      awardAttemptedToday: true,
+      awardDuplicate: true,
     });
     await expect(replay.dialog.locator(".result-heading")).not.toContainText(
       /\+\s*[\d,]+\s*轟/,
+    );
+    await expect(replay.dialog.locator(".scoring-duplicate")).toHaveText(
+      "この問題は今日すでに回答したため、今回は加点されません。",
+    );
+    await expect(replay.dialog.locator(".answer-result")).toContainText(
+      "翌日（日本時間0:00以降）は、通常の加点条件が適用されます。",
     );
     const finalStats = (await (
       await context.request.get("/api/stats")
     ).json()) as Stats;
     expect(finalStats).toMatchObject({
-      totalPoints: 0,
-      weeklyPoints: 0,
+      totalPoints: 1,
+      weeklyPoints: 1,
       solvedCount: 1,
       solvedIds: [canonicalId],
       wrongTodayIds: [],
       pendingAwardIds: [],
-      activity: [{ date: FIRST_DAY, count: 1, points: 0 }],
+      attemptedTodayContentIds: [contentId],
+      activity: [
+        { date: FIRST_DAY, count: 1, points: 0 },
+        { date: SECOND_DAY, count: 1, points: 1 },
+      ],
     });
+    expect(finalStats.activity.find((day) => day.date === SECOND_DAY)).toEqual({
+      date: SECOND_DAY,
+      count: 1,
+      points: 1,
+    });
+    expect((await store.lifetimeTotals([1]))[0].totalPoints).toBe(1);
     expect(
-      finalStats.activity.find((day) => day.date === SECOND_DAY),
-    ).toBeUndefined();
-    expect((await store.lifetimeTotals([1]))[0].totalPoints).toBe(0);
+      store.db.prepare("SELECT COUNT(*) AS count FROM daily_awards").get()
+        ?.count,
+    ).toBe(1);
+    expect(
+      store.db
+        .prepare("SELECT COUNT(*) AS count,SUM(points) AS points FROM solves")
+        .get(),
+    ).toMatchObject({ count: 1, points: 0 });
     expect(errors).toEqual([]);
   } finally {
     await context.close();

@@ -274,7 +274,7 @@ export function RankingView({
                   ))}
                 </div>
                 <p className="rule-footnote">
-                  同じ問題への加点は1回のみ。一度間違えた問題は、その日は加点されません。過去問も加点条件の対象です。
+                  同じ内容の問題は、日本時間の1日につき最初の回答だけが加点判定の対象です。最初に間違えた問題は、その日は加点されません。過去問も対象です。
                 </p>
               </>
             )}
@@ -709,7 +709,7 @@ export function ArchiveView({
         <span>
           {scoringPaused
             ? "加点停止中です。新しく正解しても轟は加算されません。"
-            : "加点条件を満たすと、今日の取得額に反映されます。一度間違えた問題は、その日は加点されません。"}
+            : "過去に正解した問題も、その日の最初の回答は加点判定の対象です。最初に間違えた問題は、その日は加点されません。"}
         </span>
       </div>
       <div className="view-filter-row archive-filters">
@@ -777,10 +777,12 @@ export function ArchiveView({
                     {LEVELS[p.level].name}
                     {!scoringPaused && (
                       <small>
-                        {stats.solvedIds.includes(p.rewardId ?? p.id)
-                          ? "加点なし"
-                          : stats.wrongTodayIds?.includes(p.rewardId ?? p.id)
-                            ? "今日は加点なし"
+                        {stats.wrongTodayIds?.includes(p.rewardId ?? p.id)
+                          ? "今日は加点なし"
+                          : stats.attemptedTodayContentIds?.includes(
+                                p.contentId ?? p.rewardId ?? p.id,
+                              )
+                            ? "本日回答済み"
                             : `+${formatPointIncome(LEVELS[p.level].points)}轟`}
                       </small>
                     )}

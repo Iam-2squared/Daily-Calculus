@@ -1,3 +1,4 @@
+import { questionFingerprint } from "./content-fingerprint.js";
 import { createHash } from "node:crypto";
 import type {
   DailyCategory,
@@ -750,5 +751,5 @@ export function publicProblem(problem: PrivateProblem): Problem {
     explanationFormulas: _formulas,
     ...safe
   } = problem;
-  return safe;
+  return { ...safe, contentId: questionFingerprint(problem) };
 }

@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import type { Level, PrivateProblem, Problem } from "../shared/types.js";
+import type { Level, PrivateProblem } from "../shared/types.js";
 import { getProblem } from "./problems.js";
 import { generatePracticeProblem } from "./practice-problems.js";
 import {
@@ -7,39 +6,7 @@ import {
   generateBankProblemV3,
 } from "./problem-bank/index.js";
 
-function normalizedInstruction(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/\s+/gu, "")
-    .replaceAll("選んでください", "求めてください");
-}
-
-function normalizedFormula(value: string): string {
-  return value
-    .normalize("NFKC")
-    .replace(/\\(?:left|right|displaystyle|quad|qquad)\b/g, "")
-    .replace(/\\[!,;:\s]/g, "")
-    .replace(/\\(?:dfrac|tfrac)\b/g, "\\frac")
-    .replace(/\s+/gu, "");
-}
-
-/**
- * Persistent scoring identity v1. Keep normalization stable: changing it needs
- * a migration of existing fingerprint mappings and first-attempt receipts.
- */
-export function questionFingerprint(
-  problem: Pick<Problem, "prompt" | "formula">,
-): string {
-  return createHash("sha256")
-    .update("daily-calculus:math-content:v1\0")
-    .update(
-      JSON.stringify([
-        normalizedInstruction(problem.prompt),
-        normalizedFormula(problem.formula),
-      ]),
-    )
-    .digest("hex");
-}
+export { questionFingerprint } from "./content-fingerprint.js";
 
 /** Only for trusted stored IDs during migration; this does not authorize answers. */
 export function regenerateHistoricalProblem(id: string): PrivateProblem | null {

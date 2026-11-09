@@ -90,7 +90,7 @@ test("global pause overrides every correct award including gate recovery, withou
     "advanced",
   );
   assert.equal(replay.alreadySolved, true);
-  assert.equal(replay.awardPaused, false);
+  assert.equal(replay.awardPaused, true);
   assert.equal(
     (await answer(store, owner.id, "before-pause", false)).awardPaused,
     false,

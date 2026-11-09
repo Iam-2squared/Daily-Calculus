@@ -559,6 +559,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
           awardPending: false,
           awardDuplicate: false,
           awardUnavailable: false,
+          awardAttemptedToday: false,
           scoringFrozenAt: (await store.scoringControl()).scoringFrozenAt,
         };
     let creditSyncPending: boolean | undefined;

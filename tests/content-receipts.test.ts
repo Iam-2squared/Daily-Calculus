@@ -12,6 +12,7 @@ import {
 } from "../server/question-identity.js";
 import { SqliteStore } from "../server/store.js";
 import type { Level } from "../shared/types.js";
+import { createLegacyDatabase } from "./helpers/legacy-database.js";
 
 const TODAY = "2026-11-09";
 const key = (formula: string) =>
@@ -148,7 +149,7 @@ test("trusted history reconstruction accepts real timed nonce shapes and builds 
   );
 });
 
-test("one content attempt prevents new IDs, modes, days and difficulty labels from awarding again, without changing other users", async (t) => {
+test("one content attempt per day prevents new IDs, modes and difficulty labels from awarding again, without changing other users", async (t) => {
   const store = new SqliteStore(":memory:");
   t.after(() => store.db.close());
   const owner = await user(store);
@@ -170,10 +171,13 @@ test("one content attempt prevents new IDs, modes, days and difficulty labels fr
       ),
     ),
   );
-  assert.ok(repeated.every((result) => result.pointsEarned === 0));
-  assert.ok(repeated.every((result) => result.awardDuplicate));
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 1);
-  assert.equal((await store.stats(owner.id, TODAY, TODAY)).totalPoints, 1);
+  assert.equal(
+    repeated.reduce((sum, result) => sum + result.pointsEarned, 0),
+    5,
+  );
+  assert.equal(repeated.filter((result) => !result.awardDuplicate).length, 1);
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 6);
+  assert.equal((await store.stats(owner.id, TODAY, TODAY)).totalPoints, 6);
   assert.equal(
     (
       await answer(
@@ -189,7 +193,7 @@ test("one content attempt prevents new IDs, modes, days and difficulty labels fr
   );
 });
 
-test("a first wrong attempt reserves the content forever and duplicate variants neither award nor advance recovery", async (t) => {
+test("a first wrong attempt reserves today's content and duplicate variants neither award nor advance recovery", async (t) => {
   const store = new SqliteStore(":memory:");
   t.after(() => store.db.close());
   const owner = await user(store);
@@ -230,7 +234,7 @@ test("a first wrong attempt reserves the content forever and duplicate variants 
         "2026-11-10",
       )
     ).pointsEarned,
-    0,
+    1,
   );
   await answer(store, owner.id, "second-new-wrong", key("f(x)=x^3"), false);
   assert.equal(
@@ -267,7 +271,7 @@ test("a first wrong attempt reserves the content forever and duplicate variants 
     ).pointsEarned,
     5,
   );
-  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 5);
+  assert.equal((await store.lifetimeTotals([owner.id]))[0].totalPoints, 6);
 });
 
 test("unranked legacy and paused attempts cannot later be repackaged as fresh ranked content", async (t) => {
@@ -380,20 +384,30 @@ test("reopening a local database backfills old solves and wrong attempts without
   const path = join(directory, "history.sqlite");
   let store: SqliteStore | undefined;
   try {
-    store = new SqliteStore(path);
-    const owner = await user(store);
+    const owner = { id: 1 };
     const oldId = historicalId("c2p", "0123456789abcdef");
     const wrongId = historicalId("c1t", "fedcba9876543210", "Ab_cd-Ef012");
-    store.db
-      .prepare("INSERT INTO solves VALUES(?,?,?,?,?,?)")
-      .run(owner.id, oldId, "basic", 1, `${TODAY}T05:00:00Z`, TODAY);
-    store.db
-      .prepare("INSERT INTO wrong_attempts VALUES(?,?,?)")
-      .run(owner.id, wrongId, TODAY);
-    const receipt = store.db
-      .prepare("SELECT * FROM solves WHERE user_id=?")
-      .get(owner.id);
-    store.db.close();
+    const receipt = createLegacyDatabase(path, (legacy) => {
+      legacy
+        .prepare("INSERT INTO users VALUES(?,?,?,?,?,?)")
+        .run(
+          owner.id,
+          "history",
+          "history",
+          "hash",
+          "salt",
+          `${TODAY}T05:00:00Z`,
+        );
+      legacy
+        .prepare("INSERT INTO solves VALUES(?,?,?,?,?,?)")
+        .run(owner.id, oldId, "basic", 1, `${TODAY}T05:00:00Z`, TODAY);
+      legacy
+        .prepare("INSERT INTO wrong_attempts VALUES(?,?,?)")
+        .run(owner.id, wrongId, TODAY);
+      return legacy
+        .prepare("SELECT * FROM solves WHERE user_id=?")
+        .get(owner.id);
+    });
     store = new SqliteStore(path);
     assert.deepEqual(
       store.db.prepare("SELECT * FROM solves WHERE user_id=?").get(owner.id),

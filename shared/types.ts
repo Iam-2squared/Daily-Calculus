@@ -37,6 +37,7 @@ export const LEVELS: Record<
 };
 export interface Problem {
   id: string;
+  contentId?: string;
   // Choice revisions share the original completion receipt and award identity.
   rewardId?: string;
   date: string;
@@ -70,6 +71,7 @@ export interface AnswerResult {
   awardPending?: boolean;
   awardDuplicate?: boolean;
   awardUnavailable?: boolean;
+  awardAttemptedToday?: boolean;
   scoringFrozenAt?: string | null;
 }
 export interface ScoringStatus {
@@ -101,6 +103,7 @@ export interface Stats {
   scoringFrozenAt?: string | null;
   wrongTodayIds?: string[];
   pendingAwardIds?: string[];
+  attemptedTodayContentIds?: string[];
 }
 export interface RankingEntry {
   rank: number;

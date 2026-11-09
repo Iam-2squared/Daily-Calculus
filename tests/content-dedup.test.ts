@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { scryptSync } from "node:crypto";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { test, type TestContext } from "node:test";
 import { createApp } from "../server/app.js";
 import { Challenges } from "../server/challenges.js";
@@ -39,7 +41,7 @@ function acceleration(b = 1): Omit<PrivateProblem, "id" | "level" | "date"> {
   };
 }
 
-async function harness(t: TestContext) {
+async function harness(t: TestContext, setup?: (path: string) => void) {
   const directory = mkdtempSync(join(tmpdir(), "calculus-content-api-"));
   const path = join(directory, "content.sqlite");
   let instant = new Date(`${DAY}T05:00:00Z`);
@@ -110,6 +112,7 @@ async function harness(t: TestContext) {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+  setup?.(path);
   await start();
   async function request(endpoint: string, body?: unknown, owner?: Account) {
     const response = await fetch(base + endpoint, {
@@ -139,11 +142,14 @@ async function harness(t: TestContext) {
       await stop();
       await start();
     },
-    async register(username: string): Promise<Account> {
-      const result = await request("/api/auth/register", {
-        username,
-        password: "4916",
-      });
+    async register(username: string, login = false): Promise<Account> {
+      const result = await request(
+        `/api/auth/${login ? "login" : "register"}`,
+        {
+          username,
+          password: "4916",
+        },
+      );
       assert.ok(result.cookie);
       return { id: result.body.user.id, cookie: result.cookie };
     },
@@ -207,7 +213,7 @@ async function harness(t: TestContext) {
   };
 }
 
-test("the reproduced acceleration question awards once despite new C4 IDs, modes, dates, choices, levels and forged browser fingerprints", async (t) => {
+test("the reproduced acceleration question awards once per day despite C4 aliases and forged browser fingerprints", async (t) => {
   const h = await harness(t);
   const owner = await h.register("content_repro");
   const first = h.bind(owner);
@@ -227,12 +233,12 @@ test("the reproduced acceleration question awards once despite new C4 IDs, modes
     rewardId: "forged-new-credit",
     awardEligible: true,
   });
-  assert.equal(repeated.pointsEarned, 0);
-  assert.equal(repeated.awardDuplicate, true);
+  assert.equal(repeated.pointsEarned, 5);
+  assert.equal(repeated.awardDuplicate, false);
   assert.equal(
     repeated.alreadySolved,
     false,
-    "duplicate mathematics may still create a zero-point learning receipt",
+    "a new day and ID may create another learning receipt",
   );
   assert.equal(repeated.awardUnavailable, false);
   assert.deepEqual(repeated.scoring, {
@@ -249,19 +255,24 @@ test("the reproduced acceleration question awards once despite new C4 IDs, modes
       .get(second.id)!.fingerprint,
     questionFingerprint(first),
   );
-  assert.equal((await h.answer(owner, first)).pointsEarned, 0);
-  assert.equal(await h.lifetime(owner), 1);
-  assert.deepEqual(h.syncCalls, [owner.id]);
+  const sameDayAlias = await h.answer(owner, first, true, {
+    contentFingerprint: "d".repeat(64),
+    rewardId: "forged-claim",
+  });
+  assert.equal(sameDayAlias.pointsEarned, 0);
+  assert.equal(sameDayAlias.awardDuplicate, true);
+  assert.equal(await h.lifetime(owner), 6);
+  assert.deepEqual(h.syncCalls, [owner.id, owner.id]);
   const stats = await h.stats(owner);
-  assert.equal(stats.totalPoints, 1);
+  assert.equal(stats.totalPoints, 6);
   assert.equal(stats.solvedCount, 2);
   assert.deepEqual(stats.activity, [
     { date: DAY, count: 1, points: 1 },
-    { date: "2026-11-10", count: 1, points: 0 },
+    { date: "2026-11-10", count: 1, points: 5 },
   ]);
 });
 
-test("a first wrong attempt consumes the content forever and fresh duplicate IDs cannot advance account recovery", async (t) => {
+test("a first wrong attempt consumes today's content and aliases cannot advance recovery, while tomorrow is fresh", async (t) => {
   const h = await harness(t);
   const owner = await h.register("content_wrong");
   assert.equal(
@@ -279,29 +290,29 @@ test("a first wrong attempt consumes the content forever and fresh duplicate IDs
       h.bind(owner, { date, level: "advanced", reverse: true }),
     );
     assert.equal(result.pointsEarned, 0);
-    assert.equal(result.awardDuplicate, true);
-    assert.equal(result.scoring!.correctStreak, 0);
+    assert.equal(result.awardDuplicate, date === DAY);
+    assert.equal(result.scoring!.correctStreak, date === DAY ? 0 : 1);
     assert.equal(result.scoring!.locked, true);
   }
   const firstRecovery = await h.answer(owner, h.bind(owner, { b: 3 }));
-  assert.equal(firstRecovery.scoring!.correctStreak, 1);
+  assert.equal(firstRecovery.scoring!.correctStreak, 2);
   const replayedRecovery = await h.answer(
     owner,
     h.bind(owner, { b: 3, prefix: "c4t" }),
   );
   assert.equal(replayedRecovery.awardDuplicate, true);
-  assert.equal(replayedRecovery.scoring!.correctStreak, 1);
+  assert.equal(replayedRecovery.scoring!.correctStreak, 2);
   assert.equal(
-    (await h.answer(owner, h.bind(owner, { b: 4 }))).scoring!.correctStreak,
-    2,
+    (await h.answer(owner, h.bind(owner, { b: 4 }))).pointsEarned,
+    1,
   );
   assert.equal(
     (await h.answer(owner, h.bind(owner, { b: 5, level: "advanced" })))
       .pointsEarned,
     5,
   );
-  assert.equal(await h.lifetime(owner), 5);
-  assert.deepEqual(h.syncCalls, [owner.id]);
+  assert.equal(await h.lifetime(owner), 6);
+  assert.deepEqual(h.syncCalls, [owner.id, owner.id]);
   assert.deepEqual((await h.stats(owner)).pendingAwardIds, []);
 });
 
@@ -356,19 +367,41 @@ test("unranked legacy content cannot change global recovery or become ranked aga
 });
 
 test("backfilling the exact two historically paid duplicate c3 receipts preserves their money and fields while blocking another content award", async (t) => {
-  const h = await harness(t);
-  const owner = await h.register("history_content_api");
   const historical = [
     "c3p.b.g0u.1.3ee635f8f9fd0090.-.xiNFdqAis6p6HL6wVCFIkA",
     "c3p.b.g0u.1.e4d28004fb9b75a3.-.TmWyZwFsEnv9QXK7OVXAFA",
   ];
-  const insert = h.store.db.prepare("INSERT INTO solves VALUES(?,?,?,?,?,?)");
-  historical.forEach((id, index) =>
-    insert.run(owner.id, id, "basic", 1, `${DAY}T05:00:0${index}Z`, DAY),
-  );
-  const before = h.store.db
-    .prepare("SELECT * FROM solves ORDER BY problem_id")
-    .all();
+  let before!: unknown[];
+  const h = await harness(t, (path) => {
+    const legacy = new DatabaseSync(path);
+    try {
+      legacy.exec(`
+        CREATE TABLE users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT NOT NULL,username_key TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,password_salt TEXT NOT NULL,created_at TEXT NOT NULL);
+        CREATE TABLE solves(user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,problem_id TEXT NOT NULL,
+          level TEXT NOT NULL,points INTEGER NOT NULL CHECK(points IN(0,1,3,5)),solved_at TEXT NOT NULL,solved_date TEXT NOT NULL,
+          PRIMARY KEY(user_id,problem_id));
+      `);
+      const salt = "c".repeat(32);
+      legacy
+        .prepare("INSERT INTO users VALUES(1,?,?,?,?,?)")
+        .run(
+          "history_content_api",
+          "history_content_api",
+          scryptSync("4916", salt, 64).toString("hex"),
+          salt,
+          `${DAY}T00:00:00Z`,
+        );
+      const insert = legacy.prepare("INSERT INTO solves VALUES(?,?,?,?,?,?)");
+      historical.forEach((id, index) =>
+        insert.run(1, id, "basic", 1, `${DAY}T05:00:0${index}Z`, DAY),
+      );
+      before = legacy.prepare("SELECT * FROM solves ORDER BY problem_id").all();
+    } finally {
+      legacy.close();
+    }
+  });
+  const owner = await h.register("history_content_api", true);
   assert.equal(await h.lifetime(owner), 2);
   await h.restart();
   assert.deepEqual(

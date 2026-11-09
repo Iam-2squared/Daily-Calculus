@@ -4,6 +4,7 @@ import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { createApp } from "../server/app.js";
 import { getProblem, getProblems, publicProblem } from "../server/problems.js";
+import { questionFingerprint } from "../server/content-fingerprint.js";
 import type { Level, PrivateProblem } from "../shared/types.js";
 
 const CUTOVER = "2026-11-07";
@@ -214,7 +215,10 @@ test("new daily problems are deterministic, preserve category metadata and resol
         explanationFormulas: _formulas,
         ...expectedPublic
       } = problem;
-      assert.deepEqual(safe, expectedPublic);
+      assert.deepEqual(safe, {
+        ...expectedPublic,
+        contentId: questionFingerprint(problem),
+      });
     }
   }
 });
