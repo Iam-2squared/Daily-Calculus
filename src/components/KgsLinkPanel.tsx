@@ -84,11 +84,11 @@ export function KgsLinkPanel() {
         <>
           <p className="kgs-link-connected"><CheckCircle2 size={17} aria-hidden="true" /><strong>{status.member?.name}</strong> と連携済み</p>
           <dl className="kgs-wallet-summary">
-            <div><dt>保有額（暗記＋微積）</dt><dd>{money(status.balance)}</dd></div>
-            <div><dt>総取得（暗記＋微積）</dt><dd>{money(status.totalIncome)}</dd></div>
-            <div><dt>うち微積の総取得</dt><dd>{money(status.calculusIncome)}</dd></div>
+            <div><dt>保有額（共通）</dt><dd>{money(status.balance)}</dd></div>
+            <div><dt>総取得（Gの損益込み）</dt><dd>{money(status.totalIncome)}</dd></div>
+            <div><dt>微積で獲得した累計</dt><dd>{money(status.calculusIncome)}</dd></div>
           </dl>
-          <p className="kgs-link-note">総取得は、ガチャで使っても減りません。連携先のアカウントは変更できません。</p>
+          <p className="kgs-link-note">総取得は暗記・微積・誕生日プレゼントとGの損益の合計です。ガチャで使っても減りません。連携先のアカウントは変更できません。</p>
           {status.syncPending && <p className="kgs-sync-pending" role="status">最新の獲得額は反映待ちです。表示額は前回反映した金額です。時間をおいて更新してください。</p>}
         </>
       ) : status ? (

@@ -45,7 +45,7 @@ export function linkStatus(value: unknown): KgsLinkStatus {
   const s = value as Record<string, unknown>;
   if (typeof s.linked !== "boolean" || s.conversionRate !== 10000 || typeof s.syncPending !== "boolean" ||
     (s.linked ? (!member(s.member) || !money(s.balance) || !money(s.totalIncome) ||
-      !money(s.calculusIncome) || s.balance > s.totalIncome || s.calculusIncome > s.totalIncome)
+      !money(s.calculusIncome) || s.balance > s.totalIncome)
       : (s.member !== null || s.balance !== null || s.totalIncome !== null || s.calculusIncome !== null))) {
     throw new IntegrationError(502, "連携先の応答を確認できませんでした。");
   }

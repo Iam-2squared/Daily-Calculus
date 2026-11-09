@@ -49,7 +49,7 @@ async function requestKgs(url: string, options?: RequestInit): Promise<KgsLinkSt
         typeof status.member.id === "string" && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(status.member.id) &&
         typeof status.member.name === "string" && Array.from(status.member.name).length > 0 && Array.from(status.member.name).length <= 20 &&
         isMoney(status.balance) && isMoney(status.totalIncome) && isMoney(status.calculusIncome) &&
-        status.balance <= status.totalIncome && status.calculusIncome <= status.totalIncome
+        status.balance <= status.totalIncome
       : status.member === null && status.balance === null && status.totalIncome === null && status.calculusIncome === null
   );
   if (!valid) throw new ApiError("連携情報を確認できませんでした。時間をおいて更新してください。", 502);
