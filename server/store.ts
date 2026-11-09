@@ -36,6 +36,18 @@ export interface SolveRecord {
   pointsEarned: number;
   alreadySolved: boolean;
 }
+export interface LifetimeTotal {
+  userId: number;
+  totalPoints: number;
+  known: boolean;
+  deleted: boolean;
+}
+export const MAX_SOURCE_POINTS = 1_000_000_000;
+export function validLifetimeIds(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length >= 1 && value.length <= 100 &&
+    value.every((id) => Number.isInteger(id) && id >= 1 && id <= 2147483647) &&
+    new Set(value).size === value.length;
+}
 export interface Store {
   db?: Database;
   userByKey(key: string): Promise<UserRow | null>;
@@ -52,6 +64,7 @@ export interface Store {
   consumeLimit(key: string, maximum: number, nowMs: number): Promise<boolean>;
   clearLimit(key: string): Promise<void>;
   recordSolve(input: SolveInput): Promise<SolveRecord>;
+  lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]>;
   stats(userId: number, weekStart: string, today: string): Promise<Stats>;
   rankings(
     userId: number | null,
@@ -180,6 +193,21 @@ export class SqliteStore implements Store {
         input.date,
       );
     return { pointsEarned: row ? Number(row.points) : 0, alreadySolved: !row };
+  }
+  async lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]> {
+    if (!validLifetimeIds(userIds)) throw new Error("Invalid lifetime source IDs.");
+    const get = this.db.prepare(
+      "SELECT total_points,deleted FROM lifetime_totals WHERE user_id=?",
+    );
+    return userIds.map((userId) => {
+      const row = get.get(userId);
+      return {
+        userId,
+        totalPoints: row ? Number(row.total_points) : 0,
+        known: !!row,
+        deleted: row ? row.deleted === 1 : true,
+      };
+    });
   }
   async stats(
     userId: number,
@@ -337,6 +365,29 @@ export class SupabaseStore implements Store {
   }
   recordSolve(input: SolveInput) {
     return this.rpc<SolveRecord>("solve_record", { ...input });
+  }
+  async lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]> {
+    if (!validLifetimeIds(userIds)) throw new Error("Invalid lifetime source IDs.");
+    const response = await this.request(this.endpoint.replace(/dc_store$/, "dc_lifetime_totals"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json", Accept: "application/json",
+        apikey: this.config.publishableKey,
+      },
+      body: JSON.stringify({ p_key: this.config.storeKey, p_user_ids: userIds }),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) throw new Error(`Cloud lifetime request failed (${response.status}).`);
+    const result: unknown = await response.json();
+    if (!Array.isArray(result) || result.length !== userIds.length ||
+      result.some((item, index) => !item || typeof item !== "object" ||
+        item.userId !== userIds[index] || !Number.isInteger(item.totalPoints) ||
+        item.totalPoints < 0 || item.totalPoints > MAX_SOURCE_POINTS ||
+        typeof item.known !== "boolean" || typeof item.deleted !== "boolean" ||
+        (!item.known && (item.totalPoints !== 0 || !item.deleted)))) {
+      throw new Error("Invalid cloud lifetime response.");
+    }
+    return result as LifetimeTotal[];
   }
   async stats(userId: number, weekStart: string, today: string) {
     return withStreak(

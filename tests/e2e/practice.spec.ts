@@ -24,14 +24,14 @@ test("registration, saved points, calendar and ranking survive legacy session-on
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
   await expect(page.locator(".answer-result")).toContainText("正解");
-  await expect(page.locator(".result-heading")).toContainText("+1 pt");
+  await expect(page.locator(".result-heading")).toContainText("+10,000 轟");
   await page
     .getByRole("button", { name: "閉じる", exact: true })
     .last()
     .click();
-  await expect(page.locator(".stat-item").first()).toContainText("1pt");
+  await expect(page.locator(".stat-item").first()).toContainText("10,000轟");
   await page.reload();
-  await expect(page.locator(".stat-item").first()).toContainText("1pt");
+  await expect(page.locator(".stat-item").first()).toContainText("10,000轟");
   await page.locator(".problem-card.basic").click();
   await page.locator(".answer-choice").nth(problem.correctIndex).click();
   await page.getByRole("button", { name: "答えを確かめる" }).click();
@@ -70,7 +70,7 @@ test("registration, saved points, calendar and ranking survive legacy session-on
   await dialog.getByLabel("4桁の数字パスワード").fill("0123");
   await dialog.getByRole("button", { name: "ログインする" }).click();
   await expect(page.locator(".account-profile")).toContainText(username);
-  await expect(page.locator(".account-stats")).toContainText("1pt");
+  await expect(page.locator(".account-stats")).toContainText("10,000轟");
   expect(errors).toEqual([]);
 });
 

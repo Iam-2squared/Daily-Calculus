@@ -85,20 +85,20 @@ test("mobile unlimited practice saves more than three questions and colors the c
       data = await (await response).json();
     }
   }
-  await expect(page.locator(".challenge-totals")).toContainText("5pt");
+  await expect(page.locator(".challenge-totals")).toContainText("50,000轟");
   await page.getByRole("button", { name: "終了する", exact: true }).click();
-  await expect(page.locator(".challenge-summary")).toContainText("5pt");
+  await expect(page.locator(".challenge-summary")).toContainText("50,000轟");
   await nav.getByRole("button", { name: "今日の学習", exact: true }).click();
-  await expect(page.locator(".stat-item").first()).toContainText("5pt");
+  await expect(page.locator(".stat-item").first()).toContainText("50,000轟");
   await expect(page.locator(".calendar-day.has-points")).toHaveCount(1);
-  await expect(page.locator(".calendar-day.has-points")).toContainText("5pt");
+  await expect(page.locator(".calendar-day.has-points")).toContainText("5万轟");
   await expect(page.locator(".calendar-day.has-points")).toHaveCSS(
     "background-color",
     "rgb(251, 146, 60)",
   );
   await expect(page.locator(".point-legend-chip")).toHaveCount(12);
   await page.reload();
-  await expect(page.locator(".stat-item").first()).toContainText("5pt");
+  await expect(page.locator(".stat-item").first()).toContainText("50,000轟");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(
     390,
   );

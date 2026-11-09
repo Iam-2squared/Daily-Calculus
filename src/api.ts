@@ -9,6 +9,7 @@ import type {
   Stats,
   User,
 } from "../shared/types";
+import type { KgsLinkStatus } from "../shared/kgs-types";
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -34,6 +35,25 @@ export async function request<T>(
       response.status,
     );
   return data as T;
+}
+
+async function requestKgs(url: string, options?: RequestInit): Promise<KgsLinkStatus> {
+  const value = await request<unknown>(url, options);
+  if (!value || typeof value !== "object") throw new ApiError("連携情報を確認できませんでした。", 502);
+  const status = value as KgsLinkStatus;
+  const isMoney = (amount: unknown): amount is number =>
+    typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0 && amount <= 10_000_000_000_000;
+  const valid = typeof status.linked === "boolean" && status.conversionRate === 10_000 && typeof status.syncPending === "boolean" && (
+    status.linked
+      ? status.member !== null && typeof status.member === "object" &&
+        typeof status.member.id === "string" && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(status.member.id) &&
+        typeof status.member.name === "string" && Array.from(status.member.name).length > 0 && Array.from(status.member.name).length <= 20 &&
+        isMoney(status.balance) && isMoney(status.totalIncome) && isMoney(status.calculusIncome) &&
+        status.balance <= status.totalIncome && status.calculusIncome <= status.totalIncome
+      : status.member === null && status.balance === null && status.totalIncome === null && status.calculusIncome === null
+  );
+  if (!valid) throw new ApiError("連携情報を確認できませんでした。時間をおいて更新してください。", 502);
+  return status;
 }
 export const api = {
   session: () => request<{ user: User | null }>("/api/session"),
@@ -87,6 +107,17 @@ export const api = {
   stats: () => request<Stats>("/api/stats"),
   rankings: (period: "all" | "week") =>
     request<Leaderboard>(`/api/rankings?period=${period}`),
+  kgsLink: () => requestKgs("/api/kgs-link"),
+  linkKgs: (attendanceNumber: string, pin: string) =>
+    requestKgs("/api/kgs-link", {
+      method: "POST",
+      body: JSON.stringify({ attendanceNumber, pin }),
+    }),
+  syncKgs: () =>
+    requestKgs("/api/kgs-link/sync", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
 };
 export const EMPTY_STATS: Stats = {
   totalPoints: 0,
