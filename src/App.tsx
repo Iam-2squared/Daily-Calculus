@@ -43,12 +43,7 @@ import {
 } from "./components/Views";
 
 type Page =
-  | "today"
-  | "knowledge"
-  | "challenge"
-  | "ranking"
-  | "archive"
-  | "account";
+  "today" | "knowledge" | "challenge" | "ranking" | "archive" | "account";
 const NAV = [
   { id: "today", label: "今日の学習", icon: BookOpen },
   { id: "knowledge", label: "微積の基本知識", icon: Leaf },
@@ -201,6 +196,38 @@ export default function App() {
       "アカウントと学習記録を削除しました。連携済みの轟はKGS11thに残ります。",
     );
   }
+  const answerVersion = statsVersion.current;
+  function recordAnswer(problem: Problem, result: AnswerResult) {
+    if (answerVersion !== statsVersion.current) return;
+    const id = problem.rewardId ?? problem.id;
+    const update = (
+      ids: string[] | undefined,
+      included: boolean | undefined,
+    ) => {
+      if (included === undefined) return ids;
+      const next = new Set(ids ?? []);
+      if (included) next.add(id);
+      else next.delete(id);
+      return [...next];
+    };
+    setStats((current) =>
+      answerVersion !== statsVersion.current
+        ? current
+        : {
+            ...current,
+            scoring: result.scoring ?? current.scoring,
+            wrongTodayIds: update(
+              current.wrongTodayIds,
+              result.awardWrongDayBlocked,
+            ),
+            pendingAwardIds: update(
+              current.pendingAwardIds,
+              result.awardPending,
+            ),
+          },
+    );
+  }
+  const closeProblem = useCallback(() => setActiveProblem(null), []);
   const nav = NAV.find((n) => n.id === page) || NAV[0];
   return (
     <div className="app-shell">
@@ -331,6 +358,9 @@ export default function App() {
               scoringStatus={stats.scoring}
               scoringPaused={stats.scoringPaused}
               scoringFrozenAt={stats.scoringFrozenAt}
+              wrongTodayIds={stats.wrongTodayIds}
+              pendingAwardIds={stats.pendingAwardIds}
+              onAnswerAccepted={recordAnswer}
               onComplete={refreshStats}
               onAccount={() => setAuthOpen(true)}
             />
@@ -413,6 +443,7 @@ export default function App() {
       )}
       {activeProblem && (
         <ProblemModal
+          key={`${date}:${user?.id ?? "guest"}:${activeProblem.id}`}
           problem={activeProblem}
           user={user}
           isSolved={stats.solvedIds.includes(
@@ -421,7 +452,14 @@ export default function App() {
           scoringStatus={stats.scoring}
           scoringPaused={stats.scoringPaused}
           scoringFrozenAt={stats.scoringFrozenAt}
-          onClose={() => setActiveProblem(null)}
+          wrongToday={stats.wrongTodayIds?.includes(
+            activeProblem.rewardId ?? activeProblem.id,
+          )}
+          awardPending={stats.pendingAwardIds?.includes(
+            activeProblem.rewardId ?? activeProblem.id,
+          )}
+          onAnswerAccepted={recordAnswer}
+          onClose={closeProblem}
           onComplete={refreshStats}
           onAccount={() => {
             setActiveProblem(null);
@@ -548,6 +586,12 @@ function Dashboard({
             {problems.map((p) => {
               const meta = LEVELS[p.level];
               const done = stats.solvedIds.includes(p.rewardId ?? p.id);
+              const wrongToday = stats.wrongTodayIds?.includes(
+                p.rewardId ?? p.id,
+              );
+              const pendingAward = stats.pendingAwardIds?.includes(
+                p.rewardId ?? p.id,
+              );
               return (
                 <button
                   className={`problem-card ${p.level} ${done ? "solved" : ""}`}
@@ -567,6 +611,8 @@ function Dashboard({
                     <span className="points-badge">
                       {stats.scoringPaused ? (
                         "加点停止中"
+                      ) : wrongToday ? (
+                        "今日は加点なし"
                       ) : (
                         <>
                           +{formatPointIncome(meta.points)}
@@ -584,7 +630,9 @@ function Dashboard({
                   <h3>{p.title}</h3>
                   <div className="problem-card-bottom">
                     <span>
-                      {done ? (
+                      {pendingAward && !wrongToday && !stats.scoringPaused ? (
+                        <>加点対象（未獲得）</>
+                      ) : done ? (
                         <>
                           <Check size={14} />
                           正解済み
@@ -608,6 +656,9 @@ function Dashboard({
         <div className="daily-caption">
           <span>今日の正解 {complete} / 3 問</span>
         </div>
+        <p className="daily-award-rule">
+          一度間違えた問題は、その日は加点されません。日付は日本時間0:00に切り替わります。
+        </p>
       </section>
       <div className="practice-entry surface">
         <div>
@@ -921,6 +972,9 @@ function ProblemModal({
   scoringStatus,
   scoringPaused,
   scoringFrozenAt,
+  wrongToday = false,
+  awardPending: pendingAward = false,
+  onAnswerAccepted,
   onClose,
   onComplete,
   onAccount,
@@ -931,6 +985,9 @@ function ProblemModal({
   scoringStatus?: ScoringStatus;
   scoringPaused?: boolean;
   scoringFrozenAt?: string | null;
+  wrongToday?: boolean;
+  awardPending?: boolean;
+  onAnswerAccepted: (problem: Problem, result: AnswerResult) => void;
   onClose: () => void;
   onComplete: () => Promise<void>;
   onAccount: () => void;
@@ -940,22 +997,53 @@ function ProblemModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [hint, setHint] = useState(false);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const ref = useDialog(onClose);
   const level = LEVELS[p.level];
   const paused = Boolean(scoringPaused || result?.awardPaused);
   const frozenAt = scoringFrozenAt ?? result?.scoringFrozenAt;
+  const wrongDayBlocked = result?.awardWrongDayBlocked ?? wrongToday;
+  const awardPending = result?.awardPending ?? pendingAward;
+  async function refresh() {
+    if (!user || refreshBusy) return;
+    setRefreshBusy(true);
+    try {
+      await onComplete();
+      if (mounted.current) setRefreshFailed(false);
+    } catch {
+      if (mounted.current) setRefreshFailed(true);
+    } finally {
+      if (mounted.current) setRefreshBusy(false);
+    }
+  }
   async function answer() {
     if (choice === null || busy) return;
     setBusy(true);
     setError("");
     try {
       const answer = await api.answer(p.id, choice);
-      setResult(answer);
-      if (user) await onComplete();
+      if (mounted.current) setResult(answer);
+      if (user) {
+        onAnswerAccepted(p, answer);
+        try {
+          await onComplete();
+        } catch {
+          if (mounted.current) setRefreshFailed(true);
+        }
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "送信できませんでした。");
+      if (mounted.current)
+        setError(e instanceof Error ? e.message : "送信できませんでした。");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   }
   return (
@@ -996,7 +1084,11 @@ function ProblemModal({
               {p.estimatedMinutes} 分
             </span>
             <span className="solver-points">
-              {paused ? "加点停止中" : `+${formatPointIncome(level.points)} 轟`}
+              {paused
+                ? "加点停止中"
+                : wrongDayBlocked
+                  ? "今日は加点なし"
+                  : `+${formatPointIncome(level.points)} 轟`}
             </span>
           </div>
           <h2 id="problem-title">{p.title}</h2>
@@ -1009,6 +1101,8 @@ function ProblemModal({
               status={scoringStatus}
               paused={paused}
               frozenAt={frozenAt}
+              wrongDayBlocked={wrongDayBlocked}
+              awardPending={awardPending}
             />
           )}
           <div
@@ -1020,7 +1114,7 @@ function ProblemModal({
               <button
                 key={i}
                 onClick={() => !result && setChoice(i)}
-                disabled={!!result}
+                disabled={!!result || busy}
                 aria-pressed={choice === i}
                 className={`answer-choice ${choice === i ? "chosen" : ""} ${result && i === result.correctIndex ? "correct-choice" : ""} ${result && !result.correct && choice === i ? "wrong-choice" : ""}`}
               >
@@ -1068,13 +1162,17 @@ function ProblemModal({
                 )}
               </button>
               <p className="solver-footnote">
-                {isSolved
-                  ? "この問題は正解済みです。復習しても重複加点されません。"
-                  : user
-                    ? paused
-                      ? "現在は加点を停止しています。正解の学習記録は残ります。"
-                      : "正解すると轟が記録されます。"
-                    : "お試しで解けます。学習記録の保存にはログインが必要です。"}
+                {user
+                  ? paused
+                    ? "現在は加点を停止しています。正解の学習記録は残ります。"
+                    : wrongDayBlocked
+                      ? "この問題は今日は加点されません。正解の学習記録は残ります。"
+                      : awardPending
+                        ? "この問題の轟は未獲得です。加点条件を満たすと加点対象になります。"
+                        : isSolved
+                          ? "この問題は正解済みです。復習しても重複加点されません。"
+                          : "加点条件を満たして正解すると轟が記録されます。"
+                  : "お試しで解けます。学習記録の保存にはログインが必要です。"}
               </p>
             </>
           )}
@@ -1100,11 +1198,14 @@ function ProblemModal({
                 </p>
               )}
               <ScoringNotice
-                status={result.scoring}
-                awardBlocked={result.awardBlocked}
+                status={result.scoring ?? scoringStatus}
+                awardBlocked={result.correct && result.awardBlocked}
                 paused={paused}
                 frozenAt={frozenAt}
                 awardPaused={result.correct && paused}
+                wrongDayBlocked={wrongDayBlocked}
+                awardPending={awardPending}
+                answerCorrect={result.correct}
               />
               <div className="explanation">
                 <span className="eyebrow">解説</span>
@@ -1126,10 +1227,25 @@ function ProblemModal({
                     </MathText>
                   ))}
               </div>
-              {result.alreadySolved && (
-                <p className="solver-footnote">
-                  記録済みの問題のため、今回の加点はありません。
-                </p>
+              {result.alreadySolved &&
+                result.pointsEarned === 0 &&
+                !paused &&
+                !wrongDayBlocked &&
+                !awardPending && (
+                  <p className="solver-footnote">
+                    記録済みの問題のため、今回の加点はありません。
+                  </p>
+                )}
+              {refreshFailed && (
+                <div className="challenge-refresh-note" role="status">
+                  <p>
+                    回答結果は保存されています。学習記録の表示を更新できませんでした。
+                  </p>
+                  <button onClick={() => void refresh()} disabled={refreshBusy}>
+                    {refreshBusy && <LoaderCircle size={15} className="spin" />}
+                    記録を再読み込み
+                  </button>
+                </div>
               )}
               {!user ? (
                 <button

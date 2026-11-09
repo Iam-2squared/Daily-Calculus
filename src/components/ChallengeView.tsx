@@ -63,6 +63,9 @@ export function ChallengeView({
   scoringStatus,
   scoringPaused,
   scoringFrozenAt,
+  wrongTodayIds,
+  pendingAwardIds,
+  onAnswerAccepted,
 }: {
   user: User | null;
   onComplete: () => Promise<void>;
@@ -70,6 +73,9 @@ export function ChallengeView({
   scoringStatus?: ScoringStatus;
   scoringPaused?: boolean;
   scoringFrozenAt?: string | null;
+  wrongTodayIds?: string[];
+  pendingAwardIds?: string[];
+  onAnswerAccepted?: (problem: Problem, result: AnswerResult) => void;
 }) {
   const [level, setLevel] = useState<Level>("basic");
   const [mode, setMode] = useState<ChallengeMode>("practice");
@@ -339,6 +345,7 @@ export function ChallengeView({
         selected,
         runRef.current?.token,
       );
+      if (user) onAnswerAccepted?.(problem, response);
       if (!isCurrent(id)) {
         if (user) {
           try {
@@ -407,6 +414,13 @@ export function ChallengeView({
   const currentFrozenAt = scoringPaused
     ? (scoringFrozenAt ?? result?.scoringFrozenAt)
     : (result?.scoringFrozenAt ?? scoringFrozenAt);
+  const rewardId = problem?.rewardId ?? problem?.id;
+  const wrongToday =
+    result?.awardWrongDayBlocked ??
+    (rewardId ? wrongTodayIds?.includes(rewardId) === true : false);
+  const awardPending =
+    result?.awardPending ??
+    (rewardId ? pendingAwardIds?.includes(rewardId) === true : false);
 
   if (phase === "setup")
     return (
@@ -529,6 +543,9 @@ export function ChallengeView({
               </p>
             </>
           )}
+          <p className="challenge-rule">
+            一度間違えた問題は、その日は加点されません。日付は日本時間0:00に切り替わります。
+          </p>
           {!user && (
             <div className="challenge-guest">
               <p>
@@ -635,7 +652,9 @@ export function ChallengeView({
             <span>{LEVELS[level].name}</span>{" "}
             {currentPaused
               ? "加点停止中"
-              : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
+              : wrongToday
+                ? "この問題は今日は加点なし"
+                : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
           </p>
           <p className="challenge-run-subject">
             出題範囲：{CHALLENGE_SUBJECTS[subject]}
@@ -665,6 +684,8 @@ export function ChallengeView({
         status={currentScoring}
         paused={currentPaused}
         frozenAt={currentFrozenAt}
+        wrongDayBlocked={!result && wrongToday}
+        awardPending={!result && awardPending}
       />
       {!user && (
         <p className="challenge-active-note">
@@ -793,19 +814,26 @@ export function ChallengeView({
                     </p>
                   )}
                 </div>
-                {result.correct && (
+                {(result.correct || wrongToday) && (
                   <ScoringNotice
-                    awardBlocked={result.awardBlocked}
+                    awardBlocked={result.correct && result.awardBlocked}
                     paused={currentPaused}
                     frozenAt={currentFrozenAt}
-                    awardPaused={currentPaused}
+                    awardPaused={result.correct && currentPaused}
+                    wrongDayBlocked={wrongToday}
+                    awardPending={awardPending}
+                    answerCorrect={result.correct}
                   />
                 )}
-                {result.alreadySolved && !currentPaused && (
-                  <p className="challenge-rule">
-                    正解済みのため、今回の加点はありません。
-                  </p>
-                )}
+                {result.alreadySolved &&
+                  result.pointsEarned === 0 &&
+                  !currentPaused &&
+                  !wrongToday &&
+                  !awardPending && (
+                    <p className="challenge-rule">
+                      正解済みのため、今回の加点はありません。
+                    </p>
+                  )}
                 <button
                   className="challenge-explanation-toggle"
                   onClick={() => setExplanationOpen((v) => !v)}

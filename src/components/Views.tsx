@@ -274,7 +274,7 @@ export function RankingView({
                   ))}
                 </div>
                 <p className="rule-footnote">
-                  同じ問題への加点は初回正解時のみ。過去問の正解もランキングに反映されます。
+                  同じ問題への加点は1回のみ。一度間違えた問題は、その日は加点されません。過去問も加点条件の対象です。
                 </p>
               </>
             )}
@@ -471,7 +471,7 @@ export function CalendarView({
                 {formatPointIncome(monthPoints)}
                 <small>轟</small>
               </strong>
-              <p>初回正解分の合計</p>
+              <p>獲得した轟の合計</p>
             </div>
           </div>
         </>
@@ -709,7 +709,7 @@ export function ArchiveView({
         <span>
           {scoringPaused
             ? "加点停止中です。新しく正解しても轟は加算されません。"
-            : "初めて正解した問題は、今日の取得額に加算されます。"}
+            : "加点条件を満たすと、今日の取得額に反映されます。一度間違えた問題は、その日は加点されません。"}
         </span>
       </div>
       <div className="view-filter-row archive-filters">
@@ -777,7 +777,9 @@ export function ArchiveView({
                     {LEVELS[p.level].name}
                     {!scoringPaused && (
                       <small>
-                        +{formatPointIncome(LEVELS[p.level].points)}轟
+                        {stats.wrongTodayIds?.includes(p.rewardId ?? p.id)
+                          ? "今日は加点なし"
+                          : `+${formatPointIncome(LEVELS[p.level].points)}轟`}
                       </small>
                     )}
                   </span>
@@ -801,7 +803,11 @@ export function ArchiveView({
                         : ""
                     }
                   >
-                    {stats.solvedIds.includes(p.rewardId ?? p.id) ? (
+                    {stats.pendingAwardIds?.includes(p.rewardId ?? p.id) &&
+                    !stats.wrongTodayIds?.includes(p.rewardId ?? p.id) &&
+                    !scoringPaused ? (
+                      <>加点対象（未獲得）</>
+                    ) : stats.solvedIds.includes(p.rewardId ?? p.id) ? (
                       <>
                         <CheckCircle2 size={15} /> 正解済み
                       </>

@@ -534,6 +534,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
       return void res.status(400).json({ error: "解答を1つ選んでください。" });
     const user: User | undefined = res.locals.user;
     const correct = choice === problem.correctIndex;
+    const answeredAt = now();
     // Every authenticated mode shares the store's atomic, account-wide gate.
     // Only the committed award below is eligible for external wallet syncing.
     const result = user
@@ -542,14 +543,16 @@ export function createApp(databasePath?: string, options: Options = {}) {
           problemId: problem.rewardId ?? problem.id,
           level: problem.level,
           points: LEVELS[problem.level].points,
-          solvedAt: now().toISOString(),
-          date: todayJST(now()),
+          solvedAt: answeredAt.toISOString(),
+          date: todayJST(answeredAt),
           correct,
         })
       : {
           pointsEarned: 0,
           alreadySolved: false,
           awardPaused: false,
+          awardWrongDayBlocked: false,
+          awardPending: false,
           scoringFrozenAt: (await store.scoringControl()).scoringFrozenAt,
         };
     let creditSyncPending: boolean | undefined;

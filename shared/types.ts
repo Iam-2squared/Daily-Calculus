@@ -66,6 +66,8 @@ export interface AnswerResult {
   scoring?: ScoringStatus;
   awardBlocked?: boolean;
   awardPaused?: boolean;
+  awardWrongDayBlocked?: boolean;
+  awardPending?: boolean;
   scoringFrozenAt?: string | null;
 }
 export interface ScoringStatus {
@@ -95,6 +97,8 @@ export interface Stats {
   scoring?: ScoringStatus;
   scoringPaused?: boolean;
   scoringFrozenAt?: string | null;
+  wrongTodayIds?: string[];
+  pendingAwardIds?: string[];
 }
 export interface RankingEntry {
   rank: number;

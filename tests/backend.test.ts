@@ -192,7 +192,7 @@ test("public problems omit answers, guests can practice, malformed and future pr
   );
 });
 
-test("only correct answers award difficulty points, duplicate and simultaneous submissions never award twice", async (t) => {
+test("correct answers award difficulty points once, while a question missed today stays unawarded", async (t) => {
   const h = await harness();
   t.after(() => h.close());
   const { cookie } = await register(h);
@@ -220,19 +220,23 @@ test("only correct answers award difficulty points, duplicate and simultaneous s
     );
     assert.equal(
       results.reduce((sum, row) => sum + row.body.pointsEarned, 0),
-      { basic: 1, applied: 3, advanced: 5 }[problem.level],
+      problem.id === basic.id
+        ? 0
+        : { basic: 1, applied: 3, advanced: 5 }[problem.level],
     );
     assert.equal(results.filter((row) => row.body.alreadySolved).length, 2);
   }
   const stats = (await h.request("/api/stats", { cookie })).body;
-  assert.equal(stats.totalPoints, 9);
-  assert.equal(stats.weeklyPoints, 9);
+  assert.equal(stats.totalPoints, 8);
+  assert.equal(stats.weeklyPoints, 8);
   assert.equal(stats.solvedCount, 3);
   assert.equal(stats.streak, 1);
   assert.deepEqual(stats.levelCounts, { basic: 1, applied: 1, advanced: 1 });
   assert.deepEqual(stats.activity, [
-    { date: "2026-10-28", count: 3, points: 9 },
+    { date: "2026-10-28", count: 3, points: 8 },
   ]);
+  assert.deepEqual(stats.wrongTodayIds, [basic.rewardId ?? basic.id]);
+  assert.deepEqual(stats.pendingAwardIds, [basic.rewardId ?? basic.id]);
 });
 
 test("leaderboard caps display at 25, returns own rank beyond the cap and separates weekly points", async (t) => {

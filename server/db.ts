@@ -118,6 +118,25 @@ export function openDatabase(path: string) {
     );
     INSERT INTO scoring_control(singleton,paused,frozen_at) VALUES(1,0,NULL)
       ON CONFLICT(singleton) DO NOTHING;
+    CREATE TABLE IF NOT EXISTS wrong_attempts (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      problem_id TEXT NOT NULL,
+      wrong_date TEXT NOT NULL,
+      PRIMARY KEY(user_id,problem_id,wrong_date)
+    );
+    CREATE INDEX IF NOT EXISTS wrong_attempts_date ON wrong_attempts(wrong_date,user_id);
+    CREATE TABLE IF NOT EXISTS solve_awards (
+      user_id INTEGER NOT NULL,
+      problem_id TEXT NOT NULL,
+      pending INTEGER NOT NULL DEFAULT 0 CHECK(pending IN (0,1)),
+      award_date TEXT,
+      awarded_at TEXT,
+      PRIMARY KEY(user_id,problem_id),
+      FOREIGN KEY(user_id,problem_id) REFERENCES solves(user_id,problem_id) ON DELETE CASCADE,
+      CHECK((award_date IS NULL)=(awarded_at IS NULL)),
+      CHECK(pending=0 OR award_date IS NULL)
+    );
+    CREATE INDEX IF NOT EXISTS solve_awards_date ON solve_awards(award_date,user_id);
   `);
   // The source watermark is independent of account/solve deletion. Only the
   // opaque, never-reused numeric ID and earned total survive account deletion.
@@ -135,6 +154,9 @@ export function openDatabase(path: string) {
       SELECT u.id,COALESCE(SUM(s.points),0),0
       FROM users u LEFT JOIN solves s ON s.user_id=u.id GROUP BY u.id
       ON CONFLICT(user_id) DO NOTHING;
+    INSERT INTO solve_awards(user_id,problem_id,pending,award_date,awarded_at)
+      SELECT user_id,problem_id,0,solved_date,solved_at FROM solves WHERE points>0
+      ON CONFLICT(user_id,problem_id) DO NOTHING;
     CREATE TRIGGER IF NOT EXISTS lifetime_user_insert AFTER INSERT ON users
     BEGIN
       INSERT INTO lifetime_totals(user_id,total_points,deleted)
@@ -143,6 +165,24 @@ export function openDatabase(path: string) {
     CREATE TRIGGER IF NOT EXISTS lifetime_solve_insert AFTER INSERT ON solves
     BEGIN
       UPDATE lifetime_totals SET total_points=total_points+NEW.points
+        WHERE user_id=NEW.user_id AND deleted=0;
+      SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS solve_award_upgrade_guard BEFORE UPDATE OF points ON solves
+    WHEN NEW.points<>OLD.points AND NOT (
+      OLD.points=0 AND NEW.points=CASE OLD.level WHEN 'basic' THEN 1 WHEN 'applied' THEN 3 WHEN 'advanced' THEN 5 END
+      AND NEW.user_id=OLD.user_id AND NEW.problem_id=OLD.problem_id AND NEW.level=OLD.level
+      AND NEW.solved_at=OLD.solved_at AND NEW.solved_date=OLD.solved_date
+      AND EXISTS(SELECT 1 FROM solve_awards a WHERE a.user_id=OLD.user_id AND a.problem_id=OLD.problem_id AND a.pending=1)
+      AND NOT EXISTS(SELECT 1 FROM scoring_voids v WHERE v.user_id=OLD.user_id AND v.problem_id=OLD.problem_id)
+    )
+    BEGIN
+      SELECT RAISE(ABORT,'Invalid pending award transition');
+    END;
+    CREATE TRIGGER IF NOT EXISTS lifetime_solve_upgrade AFTER UPDATE OF points ON solves
+    WHEN NEW.points>OLD.points
+    BEGIN
+      UPDATE lifetime_totals SET total_points=total_points+(NEW.points-OLD.points)
         WHERE user_id=NEW.user_id AND deleted=0;
       SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
     END;

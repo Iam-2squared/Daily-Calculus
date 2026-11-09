@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { openDatabase, type Database } from "./db.js";
-import { addDays } from "../shared/date.js";
+import { addDays, todayJST } from "../shared/date.js";
 import type {
   Stats,
   User,
@@ -39,6 +39,8 @@ export interface SolveRecord {
   scoring: ScoringStatus;
   awardBlocked: boolean;
   awardPaused: boolean;
+  awardWrongDayBlocked: boolean;
+  awardPending: boolean;
   scoringFrozenAt: string | null;
 }
 export interface ScoringControl {
@@ -96,7 +98,9 @@ export const publicUser = (
 const limitKey = (key: string) =>
   createHash("sha256").update(key).digest("hex");
 function withStreak(stats: Stats, today: string): Stats {
-  const dates = new Set(stats.activity.map((day) => day.date));
+  const dates = new Set(
+    stats.activity.filter((day) => day.count > 0).map((day) => day.date),
+  );
   let cursor = dates.has(today) ? today : addDays(today, -1);
   let streak = 0;
   while (dates.has(cursor)) {
@@ -120,6 +124,8 @@ export function emptyStats(): Stats {
     solvedCount: 0,
     activity: [],
     solvedIds: [],
+    wrongTodayIds: [],
+    pendingAwardIds: [],
     levelCounts: { basic: 0, applied: 0, advanced: 0 },
     streak: 0,
     scoring: scoringStatus(),
@@ -211,10 +217,13 @@ export class SqliteStore implements Store {
   }
   async recordSolve(input: SolveInput): Promise<SolveRecord> {
     const expectedPoints = { basic: 1, applied: 3, advanced: 5 }[input.level];
+    const answeredAt = new Date(input.solvedAt);
     if (
       !expectedPoints ||
       input.points !== expectedPoints ||
-      typeof input.correct !== "boolean"
+      typeof input.correct !== "boolean" ||
+      !Number.isFinite(answeredAt.getTime()) ||
+      todayJST(answeredAt) !== input.date
     )
       throw new Error("Invalid problem points.");
     this.db.exec("BEGIN IMMEDIATE");
@@ -234,9 +243,27 @@ export class SqliteStore implements Store {
         .get(input.userId)!;
       let mistakes = Number(state.mistakes);
       let correctStreak = Number(state.correct_streak);
-      const alreadySolved = !!this.db
-        .prepare("SELECT 1 FROM solves WHERE user_id=? AND problem_id=?")
+      const receipt = this.db
+        .prepare(
+          "SELECT s.level,s.points,s.solved_date,COALESCE(a.pending,0) AS pending FROM solves s LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id WHERE s.user_id=? AND s.problem_id=?",
+        )
         .get(input.userId, input.problemId);
+      const alreadySolved = !!receipt;
+      if (receipt && receipt.level !== input.level)
+        throw new Error("Invalid problem level.");
+      let awardPending = Number(receipt?.pending || 0) === 1;
+      if (!input.correct && (!receipt || awardPending)) {
+        this.db
+          .prepare(
+            "INSERT INTO wrong_attempts(user_id,problem_id,wrong_date) VALUES(?,?,?) ON CONFLICT(user_id,problem_id,wrong_date) DO NOTHING",
+          )
+          .run(input.userId, input.problemId, input.date);
+      }
+      const wrongToday = !!this.db
+        .prepare(
+          "SELECT 1 FROM wrong_attempts WHERE user_id=? AND problem_id=? AND wrong_date=?",
+        )
+        .get(input.userId, input.problemId, input.date);
       let pointsEarned = 0;
       let awardBlocked = false;
       let awardPaused = false;
@@ -259,8 +286,10 @@ export class SqliteStore implements Store {
             pointsEarned = 0;
             awardPaused = true;
           }
-          // A zero-point correct answer is still a permanent learning receipt;
-          // replaying it cannot advance recovery or claim a later award.
+          if (wrongToday) pointsEarned = 0;
+          // Wrong-day suppression alone is temporary, including when recovery
+          // also blocks this first correct answer. Paused receipts stay final.
+          awardPending = wrongToday && !control.scoringPaused;
           this.db
             .prepare(
               "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES(?,?,?,?,?,?)",
@@ -273,12 +302,57 @@ export class SqliteStore implements Store {
               input.solvedAt,
               input.date,
             );
+          this.db
+            .prepare(
+              "INSERT INTO solve_awards(user_id,problem_id,pending,award_date,awarded_at) VALUES(?,?,?,?,?)",
+            )
+            .run(
+              input.userId,
+              input.problemId,
+              Number(awardPending),
+              pointsEarned > 0 ? input.date : null,
+              pointsEarned > 0 ? input.solvedAt : null,
+            );
         }
         this.db
           .prepare(
             "UPDATE scoring_state SET mistakes=?,correct_streak=? WHERE user_id=?",
           )
           .run(mistakes, correctStreak, input.userId);
+      } else if (awardPending && input.correct) {
+        // A replay never advances or resets the account-wide recovery state.
+        // Only explicitly pending wrong-day receipts may gain a later award.
+        awardBlocked = mistakes === 2;
+        awardPaused = control.scoringPaused;
+        const voided = !!this.db
+          .prepare(
+            "SELECT 1 FROM scoring_voids WHERE user_id=? AND problem_id=?",
+          )
+          .get(input.userId, input.problemId);
+        if (
+          input.date > String(receipt!.solved_date) &&
+          !wrongToday &&
+          !awardBlocked &&
+          !awardPaused &&
+          !voided
+        ) {
+          const changed = this.db
+            .prepare(
+              "UPDATE solves SET points=? WHERE user_id=? AND problem_id=? AND points=0",
+            )
+            .run(expectedPoints, input.userId, input.problemId);
+          if (changed.changes !== 1)
+            throw new Error("Pending award receipt changed.");
+          const metadata = this.db
+            .prepare(
+              "UPDATE solve_awards SET pending=0,award_date=?,awarded_at=? WHERE user_id=? AND problem_id=? AND pending=1",
+            )
+            .run(input.date, input.solvedAt, input.userId, input.problemId);
+          if (metadata.changes !== 1)
+            throw new Error("Pending award metadata changed.");
+          pointsEarned = expectedPoints;
+          awardPending = false;
+        }
       }
       const result = {
         pointsEarned,
@@ -286,6 +360,8 @@ export class SqliteStore implements Store {
         scoring: scoringStatus(mistakes, correctStreak),
         awardBlocked,
         awardPaused,
+        awardWrongDayBlocked: wrongToday,
+        awardPending,
         scoringFrozenAt: control.scoringFrozenAt,
       };
       this.db.exec("COMMIT");
@@ -322,7 +398,7 @@ export class SqliteStore implements Store {
   ): Promise<Stats> {
     const aggregate = this.db
       .prepare(
-        "SELECT COALESCE(SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END),0) AS totalPoints, COALESCE(SUM(CASE WHEN s.solved_date >= ? AND v.user_id IS NULL THEN s.points ELSE 0 END),0) AS weeklyPoints, COUNT(*) AS solvedCount FROM solves s LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id WHERE s.user_id = ?",
+        "SELECT COALESCE(SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END),0) AS totalPoints, COALESCE(SUM(CASE WHEN COALESCE(a.award_date,s.solved_date) >= ? AND v.user_id IS NULL THEN s.points ELSE 0 END),0) AS weeklyPoints, COUNT(*) AS solvedCount FROM solves s LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id WHERE s.user_id = ?",
       )
       .get(weekStart, userId) as unknown as Pick<
       Stats,
@@ -330,12 +406,35 @@ export class SqliteStore implements Store {
     >;
     const activity = this.db
       .prepare(
-        "SELECT s.solved_date AS date, COUNT(*) AS count, SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END) AS points FROM solves s LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id WHERE s.user_id = ? GROUP BY s.solved_date ORDER BY s.solved_date",
+        `WITH activity_rows AS (
+          SELECT solved_date AS date,COUNT(*) AS count,0 AS points FROM solves WHERE user_id=? GROUP BY solved_date
+          UNION ALL
+          SELECT a.award_date AS date,COUNT(*) AS count,0 AS points FROM solves s
+          JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
+          WHERE s.user_id=? AND a.award_date<>s.solved_date GROUP BY a.award_date
+          UNION ALL
+          SELECT COALESCE(a.award_date,s.solved_date) AS date,0 AS count,SUM(s.points) AS points FROM solves s
+          LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
+          LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id
+          WHERE s.user_id=? AND s.points>0 AND v.user_id IS NULL GROUP BY COALESCE(a.award_date,s.solved_date)
+        ) SELECT date,SUM(count) AS count,SUM(points) AS points FROM activity_rows GROUP BY date ORDER BY date`,
       )
-      .all(userId) as unknown as Stats["activity"];
+      .all(userId, userId, userId) as unknown as Stats["activity"];
     const solvedIds = this.db
       .prepare(
         "SELECT problem_id FROM solves WHERE user_id = ? ORDER BY solved_at DESC",
+      )
+      .all(userId)
+      .map((row) => String(row.problem_id));
+    const wrongTodayIds = this.db
+      .prepare(
+        "SELECT problem_id FROM wrong_attempts WHERE user_id=? AND wrong_date=? ORDER BY problem_id",
+      )
+      .all(userId, today)
+      .map((row) => String(row.problem_id));
+    const pendingAwardIds = this.db
+      .prepare(
+        "SELECT a.problem_id FROM solve_awards a JOIN solves s ON s.user_id=a.user_id AND s.problem_id=a.problem_id WHERE a.user_id=? AND a.pending=1 AND s.points=0 ORDER BY a.problem_id",
       )
       .all(userId)
       .map((row) => String(row.problem_id));
@@ -356,6 +455,8 @@ export class SqliteStore implements Store {
         ...aggregate,
         activity,
         solvedIds,
+        wrongTodayIds,
+        pendingAwardIds,
         levelCounts,
         streak: 0,
         scoring: scoringStatus(
@@ -373,8 +474,9 @@ export class SqliteStore implements Store {
     weekStart: string,
   ): Promise<Leaderboard> {
     const query = `WITH totals AS (
-      SELECT u.id, u.username, COALESCE(SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END),0) AS points FROM users u
-      LEFT JOIN solves s ON s.user_id = u.id ${period === "week" ? "AND s.solved_date >= ?" : ""}
+      SELECT u.id, u.username, COALESCE(SUM(CASE WHEN v.user_id IS NULL ${period === "week" ? "AND COALESCE(a.award_date,s.solved_date) >= ?" : ""} THEN s.points ELSE 0 END),0) AS points FROM users u
+      LEFT JOIN solves s ON s.user_id = u.id
+      LEFT JOIN solve_awards a ON a.user_id=s.user_id AND a.problem_id=s.problem_id
       LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id GROUP BY u.id
     ), ranked AS (SELECT *, RANK() OVER (ORDER BY points DESC) AS rank FROM totals)
     SELECT id, username, points, rank FROM ranked`;

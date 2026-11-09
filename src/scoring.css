@@ -33,6 +33,19 @@
 .scoring-notice .scoring-award-paused {
   margin-top: 8px;
 }
+.scoring-notice .scoring-wrong-day-message {
+  font-weight: 500;
+}
+.scoring-notice > * + .scoring-wrong-day,
+.scoring-notice > * + .scoring-pending {
+  margin-top: 8px;
+}
+.daily-award-rule {
+  margin-top: 12px;
+  color: #627658;
+  font-size: 12px;
+  line-height: 1.9;
+}
 @media (max-width: 700px) {
   .scoring-notice {
     padding: 14px;

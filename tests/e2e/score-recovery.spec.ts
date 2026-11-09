@@ -172,9 +172,12 @@ test("two account-wide mistakes require three fresh consecutive correct answers 
     const firstMistake = await answer(page, basic, false, true);
     expect(firstMistake.result.pointsEarned).toBe(0);
     expect(firstMistake.result.scoring).toEqual(scoring(1, 0, false));
-    await expect(firstMistake.container.locator(".scoring-notice")).toHaveCount(
-      0,
-    );
+    await expect(
+      firstMistake.container.locator(".scoring-progress"),
+    ).toHaveCount(0);
+    await expect(
+      firstMistake.container.locator(".scoring-wrong-day"),
+    ).toContainText("この問題は今日は加点されません");
     await closeDaily(firstMistake.container);
 
     await nav.getByRole("button", { name: "挑戦", exact: true }).click();
