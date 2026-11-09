@@ -41,15 +41,15 @@ async function requestKgs(url: string, options?: RequestInit): Promise<KgsLinkSt
   const value = await request<unknown>(url, options);
   if (!value || typeof value !== "object") throw new ApiError("連携情報を確認できませんでした。", 502);
   const status = value as KgsLinkStatus;
-  const isMoney = (amount: unknown): amount is number =>
-    typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0 && amount <= 10_000_000_000_000;
+  const isMoney = (amount: unknown, step = 50): amount is number =>
+    typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0 && amount <= 10_000_000_000_000 && amount % step === 0;
   const valid = typeof status.linked === "boolean" && status.conversionRate === 10_000 && typeof status.syncPending === "boolean" && (
     status.linked
       ? status.member !== null && typeof status.member === "object" &&
         typeof status.member.id === "string" && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(status.member.id) &&
         typeof status.member.name === "string" && Array.from(status.member.name).length > 0 && Array.from(status.member.name).length <= 20 &&
-        isMoney(status.balance) && isMoney(status.totalIncome) && isMoney(status.calculusIncome) &&
-        status.balance <= status.totalIncome
+        isMoney(status.balance) && isMoney(status.totalIncome) && isMoney(status.calculusIncome, 10000) &&
+        status.balance <= status.totalIncome && (status.totalIncome-status.balance) % 100 === 0
       : status.member === null && status.balance === null && status.totalIncome === null && status.calculusIncome === null
   );
   if (!valid) throw new ApiError("連携情報を確認できませんでした。時間をおいて更新してください。", 502);

@@ -12,7 +12,9 @@ const afterLoss = {
 test("historical calculus earnings can exceed the shared net total after G losses", async () => {
   const original = globalThis.fetch;
   try {
-    for (const value of [afterLoss, { ...afterLoss, balance: 0, totalIncome: 0 }]) {
+    for (const value of [afterLoss, { ...afterLoss, balance: 0, totalIncome: 0 },
+      { ...afterLoss, balance: 150, totalIncome: 10150 },
+      { ...afterLoss, balance: 50, totalIncome: 50 }]) {
       assert.deepEqual(linkStatus(value), value);
       globalThis.fetch = async () => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
       assert.deepEqual(await api.kgsLink(), value);
@@ -31,6 +33,9 @@ test("shared net compatibility keeps balance and individual money bounds intact"
       { ...afterLoss, calculusIncome: 10_000_000_010_000 },
       { ...afterLoss, balance: Number.NaN },
       { ...afterLoss, totalIncome: 10_000_000_000_001 },
+      { ...afterLoss, balance: 125, totalIncome: 10125 },
+      { ...afterLoss, balance: 100, totalIncome: 10150 },
+      { ...afterLoss, calculusIncome: 90050 },
     ]) {
       assert.throws(() => linkStatus(value));
       globalThis.fetch = async () => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });

@@ -36,16 +36,16 @@ function member(value: unknown): value is { id: string; name: string } {
   return typeof m.id === "string" && UUID.test(m.id) && typeof m.name === "string" &&
     m.name.trim() === m.name && Array.from(m.name).length >= 1 && Array.from(m.name).length <= 20;
 }
-function money(value: unknown): value is number {
+function money(value: unknown, step = 50): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&
-    value <= MAX_MONEY && value % 100 === 0;
+    value <= MAX_MONEY && value % step === 0;
 }
 export function linkStatus(value: unknown): KgsLinkStatus {
   if (!value || typeof value !== "object") throw new IntegrationError(502, "連携先の応答を確認できませんでした。");
   const s = value as Record<string, unknown>;
   if (typeof s.linked !== "boolean" || s.conversionRate !== 10000 || typeof s.syncPending !== "boolean" ||
     (s.linked ? (!member(s.member) || !money(s.balance) || !money(s.totalIncome) ||
-      !money(s.calculusIncome) || s.balance > s.totalIncome)
+      !money(s.calculusIncome, 10000) || s.balance > s.totalIncome || (s.totalIncome-s.balance) % 100 !== 0)
       : (s.member !== null || s.balance !== null || s.totalIncome !== null || s.calculusIncome !== null))) {
     throw new IntegrationError(502, "連携先の応答を確認できませんでした。");
   }

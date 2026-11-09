@@ -98,12 +98,12 @@ test("source outage preserves posted wallet and retry repairs the visible totals
 });
 
 test("G losses lower the common total while the calculus lifetime amount remains visible", async ({ page }) => {
-  await fixture(page, { ...linked, balance: 1000, totalIncome: 11000, calculusIncome: 90000 });
+  await fixture(page, { ...linked, balance: 1050, totalIncome: 11050, calculusIncome: 90000 });
   await page.goto("/#account");
   const panel = page.locator(".kgs-link-panel");
   await expect(panel.getByRole("alert")).toHaveCount(0);
-  await expect(panel.locator(".kgs-wallet-summary > div").nth(0)).toHaveText("保有額（共通）1,000轟");
-  await expect(panel.locator(".kgs-wallet-summary > div").nth(1)).toHaveText("総取得（Gの損益込み）11,000轟");
+  await expect(panel.locator(".kgs-wallet-summary > div").nth(0)).toHaveText("保有額（共通）1,050轟");
+  await expect(panel.locator(".kgs-wallet-summary > div").nth(1)).toHaveText("総取得（Gの損益込み）11,050轟");
   await expect(panel.locator(".kgs-wallet-summary > div").nth(2)).toHaveText("微積で獲得した累計90,000轟");
   await expect(panel).toContainText("暗記・微積・誕生日プレゼントとGの損益");
 });
