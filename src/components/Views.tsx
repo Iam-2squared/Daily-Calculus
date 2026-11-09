@@ -107,9 +107,11 @@ function todayKey() {
 export function RankingView({
   user,
   onAccount,
+  scoringPaused = false,
 }: {
   user: User | null;
   onAccount: () => void;
+  scoringPaused?: boolean;
 }) {
   const [period, setPeriod] = useState<"all" | "week">("all");
   const [ranking, setRanking] = useState<Leaderboard | null>(null);
@@ -243,29 +245,39 @@ export function RankingView({
             <div className="ranking-not-yet">
               <Sprout size={17} />
               <p>
-                まだ順位はありません。問題に正解すると轟が加算されます。
+                {scoringPaused
+                  ? "まだ順位はありません。現在は加点を停止しています。"
+                  : "まだ順位はありません。問題に正解すると轟が加算されます。"}
               </p>
             </div>
           )}
         </section>
         <aside className="ranking-aside">
           <div className="points-guide surface">
-            <h2>獲得額</h2>
-            <div className="point-rules">
-              {(Object.keys(LEVELS) as Level[]).map((level) => (
-                <div key={level}>
-                  <span className={`level-dot ${level}`} />
-                  <span>{LEVELS[level].name}</span>
-                  <strong>
-                    +{formatPointIncome(LEVELS[level].points)}
-                    <small>轟</small>
-                  </strong>
+            <h2>{scoringPaused ? "加点停止中" : "獲得額"}</h2>
+            {scoringPaused ? (
+              <p className="rule-footnote">
+                新しく正解しても轟は加算されません。
+              </p>
+            ) : (
+              <>
+                <div className="point-rules">
+                  {(Object.keys(LEVELS) as Level[]).map((level) => (
+                    <div key={level}>
+                      <span className={`level-dot ${level}`} />
+                      <span>{LEVELS[level].name}</span>
+                      <strong>
+                        +{formatPointIncome(LEVELS[level].points)}
+                        <small>轟</small>
+                      </strong>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            <p className="rule-footnote">
-              同じ問題への加点は初回正解時のみ。過去問の正解もランキングに反映されます。
-            </p>
+                <p className="rule-footnote">
+                  同じ問題への加点は初回正解時のみ。過去問の正解もランキングに反映されます。
+                </p>
+              </>
+            )}
           </div>
           {!user && (
             <button
@@ -550,10 +562,7 @@ export function CalendarView({
               );
             })}
           </div>
-          <div
-            className="point-calendar-legend"
-            aria-label="1日の獲得額と色"
-          >
+          <div className="point-calendar-legend" aria-label="1日の獲得額と色">
             <p>1日の獲得額</p>
             <div className="point-calendar-colors">
               <span className="point-legend-chip">
@@ -653,6 +662,7 @@ export function ArchiveView({
   stats: Stats;
   onSolve: (problem: Problem) => void;
 }) {
+  const scoringPaused = stats.scoringPaused === true;
   const [level, setLevel] = useState<"all" | Level>("all");
   const [status, setStatus] = useState("all");
   const [problems, setProblems] = useState<Problem[] | null>(null);
@@ -694,9 +704,13 @@ export function ArchiveView({
       <div className="archive-topline surface">
         <div>
           <BookOpen size={22} strokeWidth={1.4} />
-          <p>過去問の報酬</p>
+          <p>{scoringPaused ? "過去問の学習" : "過去問の報酬"}</p>
         </div>
-        <span>初めて正解した問題は、今日の取得額に加算されます。</span>
+        <span>
+          {scoringPaused
+            ? "加点停止中です。新しく正解しても轟は加算されません。"
+            : "初めて正解した問題は、今日の取得額に加算されます。"}
+        </span>
       </div>
       <div className="view-filter-row archive-filters">
         <div className="filter-pills" aria-label="過去問の難易度">
@@ -710,7 +724,9 @@ export function ArchiveView({
               }}
             >
               {l === "all" ? "すべて" : LEVELS[l].name}
-              {l !== "all" && <small>+{formatPointIncome(LEVELS[l].points)}轟</small>}
+              {l !== "all" && !scoringPaused && (
+                <small>+{formatPointIncome(LEVELS[l].points)}轟</small>
+              )}
             </button>
           ))}
         </div>
@@ -759,7 +775,11 @@ export function ArchiveView({
                   <span className={`archive-level ${p.level}`}>
                     {p.dailyCategory && "難易度："}
                     {LEVELS[p.level].name}
-                    <small>+{formatPointIncome(LEVELS[p.level].points)}轟</small>
+                    {!scoringPaused && (
+                      <small>
+                        +{formatPointIncome(LEVELS[p.level].points)}轟
+                      </small>
+                    )}
                   </span>
                   <span>{dateLabel(p.date)}</span>
                 </div>
@@ -846,7 +866,9 @@ export function AccountView({
           <p>
             ユーザーネームと4桁の数字パスワードで登録・ログインできます。
             <br />
-            ログインすると、学習記録と轟が保存されます。
+            {stats.scoringPaused
+              ? "ログインすると、学習記録が保存されます。"
+              : "ログインすると、学習記録と轟が保存されます。"}
           </p>
           <div className="account-removal-notice" role="note">
             <AlertTriangle size={18} aria-hidden="true" />

@@ -76,6 +76,16 @@ create table if not exists daily_calculus.scoring_reset_operations (
 alter table daily_calculus.scoring_reset_operations enable row level security;
 revoke all on daily_calculus.scoring_reset_operations from public, anon, authenticated;
 
+create table if not exists daily_calculus.scoring_control (
+  singleton boolean primary key default true check(singleton),
+  paused boolean not null default false,
+  frozen_at timestamptz
+);
+insert into daily_calculus.scoring_control(singleton,paused,frozen_at)
+  values(true,false,null) on conflict(singleton) do nothing;
+alter table daily_calculus.scoring_control enable row level security;
+revoke all on daily_calculus.scoring_control from public, anon, authenticated;
+
 alter table daily_calculus.scoring_voids enable row level security;
 alter table daily_calculus.scoring_state enable row level security;
 
@@ -116,6 +126,9 @@ declare
   v_correct_streak integer;
   v_awarded_points integer;
   v_award_blocked boolean;
+  v_paused boolean;
+  v_frozen_at timestamptz;
+  v_award_paused boolean;
 begin
   select s.store_key_sha256 into v_expected
     from daily_calculus.settings as s where s.singleton = true;
@@ -190,12 +203,22 @@ begin
       where key_hash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p_payload->>'key', 'UTF8')), 'hex');
     return 'null'::jsonb;
 
+  when 'scoring_control' then
+    select pg_catalog.jsonb_build_object('scoringPaused',c.paused,'scoringFrozenAt',c.frozen_at)
+      into v_result from daily_calculus.scoring_control as c where c.singleton=true;
+    return coalesce(v_result,'{"scoringPaused":false,"scoringFrozenAt":null}'::jsonb);
+
   when 'solve_record' then
     v_user_id := (p_payload->>'userId')::integer;
     if v_user_id is null or v_user_id <= 0 or
        pg_catalog.jsonb_typeof(p_payload->'correct') is distinct from 'boolean' then
       raise exception 'Invalid solve payload' using errcode = '22023';
     end if;
+    -- The global lock comes first. A control UPDATE waits for all in-flight
+    -- answer transactions; subsequent answers cannot slip past a committed pause.
+    select c.paused,c.frozen_at into v_paused,v_frozen_at
+      from daily_calculus.scoring_control as c where c.singleton=true for share;
+    if not found then v_paused:=false; v_frozen_at:=null; end if;
     -- Every answer for an account serializes on the parent row. This also
     -- serializes against account deletion and works across Function instances.
     perform 1 from daily_calculus.users as u where u.id=v_user_id for update;
@@ -208,6 +231,7 @@ begin
       where s.user_id=v_user_id and s.problem_id=p_payload->>'problemId') into v_exists;
     v_awarded_points := 0;
     v_award_blocked := false;
+    v_award_paused := false;
     if not v_exists then
       if (p_payload->>'correct')::boolean then
         v_level := p_payload->>'level';
@@ -215,19 +239,20 @@ begin
         if v_points is null or (p_payload->>'points')::integer is distinct from v_points then
           raise exception 'Invalid problem points' using errcode = '22023';
         end if;
-        v_awarded_points := case when v_mistakes=2 and v_correct_streak<2 then 0 else v_points end;
+        v_awarded_points := case when v_paused or (v_mistakes=2 and v_correct_streak<2) then 0 else v_points end;
         insert into daily_calculus.solves(user_id,problem_id,level,points,solved_at,solved_date)
           values(v_user_id,p_payload->>'problemId',v_level,v_awarded_points,
                  (p_payload->>'solvedAt')::timestamptz,(p_payload->>'date')::date)
           on conflict(user_id,problem_id) do nothing;
         get diagnostics v_changed = row_count;
         if v_changed=1 then
+          v_award_paused := v_paused;
           if v_mistakes=2 and v_correct_streak<2 then
             v_correct_streak := v_correct_streak+1;
             v_award_blocked := true;
           elsif v_mistakes=2 then
-            -- The third distinct recovery correct answer earns its normal
-            -- difficulty points and restores the account's scoring state.
+            -- The third distinct recovery correct answer restores scoring.
+            -- A global pause still stores zero, even when recovery completes.
             v_mistakes := 0;
             v_correct_streak := 0;
           end if;
@@ -248,17 +273,23 @@ begin
       'pointsEarned',v_awarded_points,
       'alreadySolved',v_exists,
       'scoring',pg_catalog.jsonb_build_object('mistakes',v_mistakes,'correctStreak',v_correct_streak,'requiredCorrectStreak',3,'locked',v_mistakes=2),
-      'awardBlocked',v_award_blocked
+      'awardBlocked',v_award_blocked,
+      'awardPaused',v_award_paused,
+      'scoringFrozenAt',v_frozen_at
     );
 
   when 'stats' then
     v_user_id := (p_payload->>'userId')::integer;
     v_week := (p_payload->>'weekStart')::date;
+    select c.paused,c.frozen_at into v_paused,v_frozen_at
+      from daily_calculus.scoring_control as c where c.singleton=true;
     select pg_catalog.jsonb_build_object(
       'totalPoints', coalesce(sum(case when sv.user_id is not null then 0 else s.points end), 0),
       'weeklyPoints', coalesce(sum(case when sv.user_id is not null then 0 else s.points end) filter(where s.solved_date >= v_week), 0),
       'solvedCount', count(*),
       'streak', 0,
+      'scoringPaused',coalesce(v_paused,false),
+      'scoringFrozenAt',v_frozen_at,
       'scoring',coalesce((select pg_catalog.jsonb_build_object(
         'mistakes',st.mistakes,'correctStreak',st.correct_streak,'requiredCorrectStreak',3,'locked',st.mistakes=2)
         from daily_calculus.scoring_state as st where st.user_id=v_user_id),

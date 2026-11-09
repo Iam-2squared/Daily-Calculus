@@ -30,6 +30,9 @@
 .scoring-notice .scoring-progress + .scoring-award-blocked {
   margin-top: 8px;
 }
+.scoring-notice .scoring-award-paused {
+  margin-top: 8px;
+}
 @media (max-width: 700px) {
   .scoring-notice {
     padding: 14px;

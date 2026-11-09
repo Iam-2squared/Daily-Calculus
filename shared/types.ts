@@ -63,6 +63,8 @@ export interface AnswerResult {
   alreadySolved: boolean;
   scoring?: ScoringStatus;
   awardBlocked?: boolean;
+  awardPaused?: boolean;
+  scoringFrozenAt?: string | null;
 }
 export interface ScoringStatus {
   mistakes: number;
@@ -89,6 +91,8 @@ export interface Stats {
   solvedIds: string[];
   levelCounts: Record<Level, number>;
   scoring?: ScoringStatus;
+  scoringPaused?: boolean;
+  scoringFrozenAt?: string | null;
 }
 export interface RankingEntry {
   rank: number;

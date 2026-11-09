@@ -24,7 +24,12 @@ import {
   validChallengeInput,
   validChallengeSubject,
 } from "./challenges.js";
-import { KgsIntegration, IntegrationError, exactKeys, type KgsIntegrationOptions } from "./kgs-integration.js";
+import {
+  KgsIntegration,
+  IntegrationError,
+  exactKeys,
+  type KgsIntegrationOptions,
+} from "./kgs-integration.js";
 
 const scrypt = promisify(scryptCallback);
 const COOKIE = "daily_calculus_session";
@@ -72,16 +77,31 @@ export function createApp(databasePath?: string, options: Options = {}) {
   });
   // Server-to-server read endpoint: authenticate before parsing a body, Origin
   // checks or browser session lookups. This endpoint never calls Target back.
-  app.all("/api/integrations/target/totals", (req, res, next) => {
-    if (!integration.authorizeSource(req.get("Authorization")))
-      return void res.status(404).json({ error: "ページが見つかりませんでした。" });
-    if (req.method !== "POST") return void res.status(405).json({ error: "送信方法を確認してください。" });
-    next();
-  }, express.json({ limit: "4kb" }), async (req, res) => {
-    if (!exactKeys(req.body, ["userIds"]) || !validLifetimeIds(req.body.userIds))
-      return void res.status(400).json({ error: "送信内容を確認してください。" });
-    res.json({ totals: await store.lifetimeTotals(req.body.userIds) });
-  });
+  app.all(
+    "/api/integrations/target/totals",
+    (req, res, next) => {
+      if (!integration.authorizeSource(req.get("Authorization")))
+        return void res
+          .status(404)
+          .json({ error: "ページが見つかりませんでした。" });
+      if (req.method !== "POST")
+        return void res
+          .status(405)
+          .json({ error: "送信方法を確認してください。" });
+      next();
+    },
+    express.json({ limit: "4kb" }),
+    async (req, res) => {
+      if (
+        !exactKeys(req.body, ["userIds"]) ||
+        !validLifetimeIds(req.body.userIds)
+      )
+        return void res
+          .status(400)
+          .json({ error: "送信内容を確認してください。" });
+      res.json({ totals: await store.lifetimeTotals(req.body.userIds) });
+    },
+  );
   app.use(express.json({ limit: "8kb" }));
   app.use(cookieParser());
   app.use("/api", (req, res, next) => {
@@ -156,23 +176,41 @@ export function createApp(databasePath?: string, options: Options = {}) {
     res.status(401).json({ error: "ログインし直してからお試しください。" });
     return null;
   }
-  function requireLinkOrigin(req: express.Request, res: express.Response): boolean {
+  function requireLinkOrigin(
+    req: express.Request,
+    res: express.Response,
+  ): boolean {
     const supplied = req.get("Origin");
-    const protocol = process.env.VERCEL === "1" && req.get("x-forwarded-proto") === "https"
-      ? "https" : req.protocol;
+    const protocol =
+      process.env.VERCEL === "1" && req.get("x-forwarded-proto") === "https"
+        ? "https"
+        : req.protocol;
     let matches = false;
     try {
       const parsed = new URL(supplied || "");
-      matches = parsed.origin === supplied && parsed.origin === `${protocol}://${req.get("Host")}`;
-    } catch { /* Missing and malformed origins fail closed on linking POSTs. */ }
+      matches =
+        parsed.origin === supplied &&
+        parsed.origin === `${protocol}://${req.get("Host")}`;
+    } catch {
+      /* Missing and malformed origins fail closed on linking POSTs. */
+    }
     if (matches && req.get("Sec-Fetch-Site") !== "cross-site") return true;
-    res.status(403).json({ error: "この操作はアプリの画面から行ってください。" });
+    res
+      .status(403)
+      .json({ error: "この操作はアプリの画面から行ってください。" });
     return false;
   }
-  async function sessionStillCurrent(req: express.Request, user: User): Promise<boolean> {
+  async function sessionStillCurrent(
+    req: express.Request,
+    user: User,
+  ): Promise<boolean> {
     const token = req.cookies[COOKIE];
-    if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) return false;
-    return (await store.sessionUser(tokenHash(token), now().getTime()))?.id === user.id;
+    if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token))
+      return false;
+    return (
+      (await store.sessionUser(tokenHash(token), now().getTime()))?.id ===
+      user.id
+    );
   }
   function validLinkQuery(req: express.Request, route: string): boolean {
     // Vercel's /api/:path* rewrite adds its matched path to the query. Accept
@@ -183,33 +221,67 @@ export function createApp(databasePath?: string, options: Options = {}) {
     try {
       for (const raw of new Set([req.url, req.originalUrl])) {
         let seen = false;
-        for (const [key, value] of new URL(raw, "http://daily-calculus.invalid").searchParams) {
+        for (const [key, value] of new URL(raw, "http://daily-calculus.invalid")
+          .searchParams) {
           if (seen || key !== "path" || value !== route) return false;
           seen = true;
         }
       }
-      return Object.keys(req.query).length === 0 ||
-        (exactKeys(req.query, ["path"]) && req.query.path === route);
-    } catch { return false; }
+      return (
+        Object.keys(req.query).length === 0 ||
+        (exactKeys(req.query, ["path"]) && req.query.path === route)
+      );
+    } catch {
+      return false;
+    }
   }
   app.get("/api/kgs-link", async (req, res) => {
     const user = requireLinkedSession(res);
     if (!user) return;
-    if (!validLinkQuery(req, "kgs-link")) return void res.status(400).json({ error: "送信内容を確認してください。" });
+    if (!validLinkQuery(req, "kgs-link"))
+      return void res
+        .status(400)
+        .json({ error: "送信内容を確認してください。" });
     const status = await integration.status(user.id);
-    if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
+    if (!(await sessionStillCurrent(req, user)))
+      return void res
+        .status(401)
+        .json({ error: "ログインし直してからお試しください。" });
     res.json(status);
   });
   app.post("/api/kgs-link", async (req, res) => {
     const user = requireLinkedSession(res);
     if (!user || !requireLinkOrigin(req, res)) return;
-    if (!validLinkQuery(req, "kgs-link") || !exactKeys(req.body, ["attendanceNumber", "pin"]) ||
-      typeof req.body.attendanceNumber !== "string" || !/^(?:[1-9]|[1-3][0-9]|40|99)$/.test(req.body.attendanceNumber) ||
-      typeof req.body.pin !== "string" || !/^\d{4}$/.test(req.body.pin))
-      return void res.status(400).json({ error: "出席番号と数字4桁の本人用暗証番号を入力してください。" });
-    if (!(await store.consumeLimit(`kgs-link-ip:${clientIp(req)}`, 30, now().getTime())) ||
-      !(await store.consumeLimit(`kgs-link-user:${user.id}`, 10, now().getTime())))
-      return void res.status(429).json({ error: "試行回数が多くなっています。時間をおいてお試しください。" });
+    if (
+      !validLinkQuery(req, "kgs-link") ||
+      !exactKeys(req.body, ["attendanceNumber", "pin"]) ||
+      typeof req.body.attendanceNumber !== "string" ||
+      !/^(?:[1-9]|[1-3][0-9]|40|99)$/.test(req.body.attendanceNumber) ||
+      typeof req.body.pin !== "string" ||
+      !/^\d{4}$/.test(req.body.pin)
+    )
+      return void res
+        .status(400)
+        .json({
+          error: "出席番号と数字4桁の本人用暗証番号を入力してください。",
+        });
+    if (
+      !(await store.consumeLimit(
+        `kgs-link-ip:${clientIp(req)}`,
+        30,
+        now().getTime(),
+      )) ||
+      !(await store.consumeLimit(
+        `kgs-link-user:${user.id}`,
+        10,
+        now().getTime(),
+      ))
+    )
+      return void res
+        .status(429)
+        .json({
+          error: "試行回数が多くなっています。時間をおいてお試しください。",
+        });
     let proof: string | undefined;
     let status;
     try {
@@ -228,9 +300,14 @@ export function createApp(databasePath?: string, options: Options = {}) {
     const user = requireLinkedSession(res);
     if (!user || !requireLinkOrigin(req, res)) return;
     if (!validLinkQuery(req, "kgs-link/sync") || !exactKeys(req.body, []))
-      return void res.status(400).json({ error: "送信内容を確認してください。" });
+      return void res
+        .status(400)
+        .json({ error: "送信内容を確認してください。" });
     const status = await integration.sync(user.id);
-    if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
+    if (!(await sessionStillCurrent(req, user)))
+      return void res
+        .status(401)
+        .json({ error: "ログインし直してからお試しください。" });
     res.json(status);
   });
   app.post("/api/auth/register", async (req, res) => {
@@ -469,13 +546,21 @@ export function createApp(databasePath?: string, options: Options = {}) {
           date: todayJST(now()),
           correct,
         })
-      : { pointsEarned: 0, alreadySolved: false };
+      : {
+          pointsEarned: 0,
+          alreadySolved: false,
+          awardPaused: false,
+          scoringFrozenAt: (await store.scoringControl()).scoringFrozenAt,
+        };
     let creditSyncPending: boolean | undefined;
     if (user && result.pointsEarned > 0) {
       // Solve credit is already durable. An offline/slow wallet must never
       // reject the answer; the next KGS wallet/ranking read repairs delivery.
-      try { creditSyncPending = (await integration.sync(user.id, true)).syncPending; }
-      catch { creditSyncPending = true; }
+      try {
+        creditSyncPending = (await integration.sync(user.id, true)).syncPending;
+      } catch {
+        creditSyncPending = true;
+      }
     }
     res.json({
       correct,
@@ -491,7 +576,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
     res.json(
       user
         ? await store.stats(user.id, weekStartJST(now()), todayJST(now()))
-        : emptyStats(),
+        : { ...emptyStats(), ...(await store.scoringControl()) },
     );
   });
   app.get("/api/rankings", async (req, res) => {

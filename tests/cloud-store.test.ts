@@ -73,6 +73,9 @@ function rpcFixture() {
       case "solve_record":
         result = await local.recordSolve(p as SolveInput);
         break;
+      case "scoring_control":
+        result = await local.scoringControl();
+        break;
       case "stats":
         result = await local.stats(p.userId, p.weekStart, p.today);
         break;

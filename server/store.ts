@@ -38,6 +38,12 @@ export interface SolveRecord {
   alreadySolved: boolean;
   scoring: ScoringStatus;
   awardBlocked: boolean;
+  awardPaused: boolean;
+  scoringFrozenAt: string | null;
+}
+export interface ScoringControl {
+  scoringPaused: boolean;
+  scoringFrozenAt: string | null;
 }
 export interface LifetimeTotal {
   userId: number;
@@ -71,6 +77,7 @@ export interface Store {
   consumeLimit(key: string, maximum: number, nowMs: number): Promise<boolean>;
   clearLimit(key: string): Promise<void>;
   recordSolve(input: SolveInput): Promise<SolveRecord>;
+  scoringControl(): Promise<ScoringControl>;
   lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]>;
   stats(userId: number, weekStart: string, today: string): Promise<Stats>;
   rankings(
@@ -116,6 +123,8 @@ export function emptyStats(): Stats {
     levelCounts: { basic: 0, applied: 0, advanced: 0 },
     streak: 0,
     scoring: scoringStatus(),
+    scoringPaused: false,
+    scoringFrozenAt: null,
   };
 }
 
@@ -123,6 +132,18 @@ export class SqliteStore implements Store {
   readonly db: Database;
   constructor(path: string) {
     this.db = openDatabase(path);
+  }
+  private currentControl(): ScoringControl {
+    const row = this.db
+      .prepare("SELECT paused,frozen_at FROM scoring_control WHERE singleton=1")
+      .get();
+    return {
+      scoringPaused: Number(row?.paused || 0) === 1,
+      scoringFrozenAt: row?.frozen_at == null ? null : String(row.frozen_at),
+    };
+  }
+  async scoringControl(): Promise<ScoringControl> {
+    return this.currentControl();
   }
   async userByKey(key: string): Promise<UserRow | null> {
     return (
@@ -198,6 +219,7 @@ export class SqliteStore implements Store {
       throw new Error("Invalid problem points.");
     this.db.exec("BEGIN IMMEDIATE");
     try {
+      const control = this.currentControl();
       if (!this.db.prepare("SELECT 1 FROM users WHERE id=?").get(input.userId))
         throw new Error("Account not found.");
       this.db
@@ -217,6 +239,7 @@ export class SqliteStore implements Store {
         .get(input.userId, input.problemId);
       let pointsEarned = 0;
       let awardBlocked = false;
+      let awardPaused = false;
       if (!alreadySolved) {
         if (!input.correct) {
           mistakes = Math.min(2, mistakes + 1);
@@ -231,6 +254,10 @@ export class SqliteStore implements Store {
               mistakes = 0;
               correctStreak = 0;
             }
+          }
+          if (control.scoringPaused) {
+            pointsEarned = 0;
+            awardPaused = true;
           }
           // A zero-point correct answer is still a permanent learning receipt;
           // replaying it cannot advance recovery or claim a later award.
@@ -258,6 +285,8 @@ export class SqliteStore implements Store {
         alreadySolved,
         scoring: scoringStatus(mistakes, correctStreak),
         awardBlocked,
+        awardPaused,
+        scoringFrozenAt: control.scoringFrozenAt,
       };
       this.db.exec("COMMIT");
       return result;
@@ -333,6 +362,7 @@ export class SqliteStore implements Store {
           Number(state?.mistakes || 0),
           Number(state?.correct_streak || 0),
         ),
+        ...this.currentControl(),
       },
       today,
     );
@@ -458,6 +488,9 @@ export class SupabaseStore implements Store {
   }
   recordSolve(input: SolveInput) {
     return this.rpc<SolveRecord>("solve_record", { ...input });
+  }
+  scoringControl() {
+    return this.rpc<ScoringControl>("scoring_control", {});
   }
   async lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]> {
     if (!validLifetimeIds(userIds))

@@ -61,11 +61,15 @@ export function ChallengeView({
   onComplete,
   onAccount,
   scoringStatus,
+  scoringPaused,
+  scoringFrozenAt,
 }: {
   user: User | null;
   onComplete: () => Promise<void>;
   onAccount: () => void;
   scoringStatus?: ScoringStatus;
+  scoringPaused?: boolean;
+  scoringFrozenAt?: string | null;
 }) {
   const [level, setLevel] = useState<Level>("basic");
   const [mode, setMode] = useState<ChallengeMode>("practice");
@@ -399,6 +403,10 @@ export function ChallengeView({
   const clock = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const active = phase === "active";
   const currentScoring = result?.scoring ?? scoringStatus;
+  const currentPaused = scoringPaused === true || result?.awardPaused === true;
+  const currentFrozenAt = scoringPaused
+    ? (scoringFrozenAt ?? result?.scoringFrozenAt)
+    : (result?.scoringFrozenAt ?? scoringFrozenAt);
 
   if (phase === "setup")
     return (
@@ -412,7 +420,11 @@ export function ChallengeView({
           </div>
         </header>
         <div className="surface challenge-setup">
-          <ScoringNotice status={currentScoring} />
+          <ScoringNotice
+            status={currentScoring}
+            paused={currentPaused}
+            frozenAt={currentFrozenAt}
+          />
           <fieldset
             className="challenge-settings"
             aria-label="出題範囲"
@@ -446,7 +458,11 @@ export function ChallengeView({
                   onClick={() => setLevel(l)}
                 >
                   <strong>{LEVELS[l].name}</strong>
-                  <span>{formatPointIncome(LEVELS[l].points)} 轟 / 正解</span>
+                  <span>
+                    {currentPaused
+                      ? "加点停止中"
+                      : `${formatPointIncome(LEVELS[l].points)} 轟 / 正解`}
+                  </span>
                   {level === l && <Check size={17} />}
                 </button>
               ))}
@@ -498,18 +514,28 @@ export function ChallengeView({
               </>
             )}
           </button>
-          <p className="challenge-rule">
-            正解すると基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題の加点は初回のみです。
-          </p>
-          <p className="challenge-rule">
-            2問間違えると加点が停止します。未正解の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
-          </p>
-          <p className="challenge-rule">
-            加点条件は今日の微積・挑戦・過去問で共通です。正解済みの問題は連続正解数に含まれません。
-          </p>
+          {currentPaused ? (
+            <p className="challenge-rule">加点停止中も問題を解けます。</p>
+          ) : (
+            <>
+              <p className="challenge-rule">
+                正解すると基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題の加点は初回のみです。
+              </p>
+              <p className="challenge-rule">
+                2問間違えると加点が停止します。未正解の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
+              </p>
+              <p className="challenge-rule">
+                加点条件は今日の微積・挑戦・過去問で共通です。正解済みの問題は連続正解数に含まれません。
+              </p>
+            </>
+          )}
           {!user && (
             <div className="challenge-guest">
-              <p>ログインすると轟と学習記録が保存されます。</p>
+              <p>
+                {currentPaused
+                  ? "ログインすると学習記録が保存されます。"
+                  : "ログインすると轟と学習記録が保存されます。"}
+              </p>
               <button onClick={onAccount}>
                 登録・ログイン
                 <ArrowRight size={15} />
@@ -551,14 +577,18 @@ export function ChallengeView({
               : "練習結果"}
           </h2>
           <RunTotals totals={totals} user={user} />
-          <ScoringNotice status={currentScoring} />
+          <ScoringNotice
+            status={currentScoring}
+            paused={currentPaused}
+            frozenAt={currentFrozenAt}
+          />
           <p className="challenge-summary-extra">
             回答数 {totals.answered} 問
             {totals.skipped > 0 && ` / スキップ ${totals.skipped} 問`}
             {totals.answered > 0 &&
               ` / 正答率 ${Math.round((totals.correct / totals.answered) * 100)}%`}
           </p>
-          {!user && (
+          {!user && !currentPaused && (
             <p className="challenge-rule">ゲストのため轟は加算されません。</p>
           )}
           <div className="challenge-summary-actions">
@@ -602,8 +632,10 @@ export function ChallengeView({
         <div>
           <h1>{modeName(mode)}</h1>
           <p>
-            <span>{LEVELS[level].name}</span> 正解で{" "}
-            {formatPointIncome(LEVELS[level].points)} 轟
+            <span>{LEVELS[level].name}</span>{" "}
+            {currentPaused
+              ? "加点停止中"
+              : `正解で ${formatPointIncome(LEVELS[level].points)} 轟`}
           </p>
           <p className="challenge-run-subject">
             出題範囲：{CHALLENGE_SUBJECTS[subject]}
@@ -629,10 +661,16 @@ export function ChallengeView({
         </button>
       </header>
       <RunTotals totals={totals} user={user} />
-      <ScoringNotice status={currentScoring} />
+      <ScoringNotice
+        status={currentScoring}
+        paused={currentPaused}
+        frozenAt={currentFrozenAt}
+      />
       {!user && (
         <p className="challenge-active-note">
-          ゲスト練習：正解数は表示されます。轟の保存にはログインが必要です。
+          {currentPaused
+            ? "ゲスト練習：正解数は表示されます。学習記録の保存にはログインが必要です。"
+            : "ゲスト練習：正解数は表示されます。轟の保存にはログインが必要です。"}
         </p>
       )}
       {phase === "finishing" && (
@@ -745,7 +783,7 @@ export function ChallengeView({
                     <X size={22} />
                   )}
                   <strong>{result.correct ? "正解" : "不正解"}</strong>
-                  {result.pointsEarned > 0 && (
+                  {result.pointsEarned > 0 && !currentPaused && (
                     <span>+{formatPointIncome(result.pointsEarned)} 轟</span>
                   )}
                   {!result.correct && (
@@ -755,10 +793,15 @@ export function ChallengeView({
                     </p>
                   )}
                 </div>
-                <ScoringNotice
-                  awardBlocked={result.correct && result.awardBlocked}
-                />
-                {result.alreadySolved && (
+                {result.correct && (
+                  <ScoringNotice
+                    awardBlocked={result.awardBlocked}
+                    paused={currentPaused}
+                    frozenAt={currentFrozenAt}
+                    awardPaused={currentPaused}
+                  />
+                )}
+                {result.alreadySolved && !currentPaused && (
                   <p className="challenge-rule">
                     正解済みのため、今回の加点はありません。
                   </p>

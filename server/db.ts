@@ -111,6 +111,13 @@ export function openDatabase(path: string) {
       correct_streak INTEGER NOT NULL DEFAULT 0 CHECK(correct_streak BETWEEN 0 AND 2),
       CHECK(mistakes=2 OR correct_streak=0)
     );
+    CREATE TABLE IF NOT EXISTS scoring_control (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+      paused INTEGER NOT NULL DEFAULT 0 CHECK(paused IN (0,1)),
+      frozen_at TEXT
+    );
+    INSERT INTO scoring_control(singleton,paused,frozen_at) VALUES(1,0,NULL)
+      ON CONFLICT(singleton) DO NOTHING;
   `);
   // The source watermark is independent of account/solve deletion. Only the
   // opaque, never-reused numeric ID and earned total survive account deletion.

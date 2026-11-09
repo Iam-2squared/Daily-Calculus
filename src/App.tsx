@@ -310,6 +310,12 @@ export default function App() {
           </div>
         </header>
         <main className="main-content">
+          {page !== "today" && page !== "challenge" && (
+            <ScoringNotice
+              paused={stats.scoringPaused}
+              frozenAt={stats.scoringFrozenAt}
+            />
+          )}
           {page === "today" && (
             <Dashboard
               {...{ stats, problems, date, loading, error }}
@@ -323,12 +329,18 @@ export default function App() {
             <ChallengeView
               user={user}
               scoringStatus={stats.scoring}
+              scoringPaused={stats.scoringPaused}
+              scoringFrozenAt={stats.scoringFrozenAt}
               onComplete={refreshStats}
               onAccount={() => setAuthOpen(true)}
             />
           )}
           {page === "ranking" && (
-            <RankingView user={user} onAccount={() => setAuthOpen(true)} />
+            <RankingView
+              user={user}
+              onAccount={() => setAuthOpen(true)}
+              scoringPaused={stats.scoringPaused}
+            />
           )}
           {page === "archive" && (
             <ArchiveView stats={stats} onSolve={setActiveProblem} />
@@ -405,6 +417,8 @@ export default function App() {
           user={user}
           isSolved={stats.solvedIds.includes(activeProblem.id)}
           scoringStatus={stats.scoring}
+          scoringPaused={stats.scoringPaused}
+          scoringFrozenAt={stats.scoringFrozenAt}
           onClose={() => setActiveProblem(null)}
           onComplete={refreshStats}
           onAccount={() => {
@@ -503,7 +517,11 @@ function Dashboard({
           </div>
         </div>
       </div>
-      <ScoringNotice status={stats.scoring} />
+      <ScoringNotice
+        status={stats.scoring}
+        paused={stats.scoringPaused}
+        frozenAt={stats.scoringFrozenAt}
+      />
       <section className="daily-section">
         <div className="section-heading">
           <div className="section-title">
@@ -545,8 +563,14 @@ function Dashboard({
                       <span>難易度：{meta.name}</span>
                     </span>
                     <span className="points-badge">
-                      +{formatPointIncome(meta.points)}
-                      <span> 轟</span>
+                      {stats.scoringPaused ? (
+                        "加点停止中"
+                      ) : (
+                        <>
+                          +{formatPointIncome(meta.points)}
+                          <span> 轟</span>
+                        </>
+                      )}
                     </span>
                   </div>
                   <div className="problem-formula">
@@ -893,6 +917,8 @@ function ProblemModal({
   user,
   isSolved,
   scoringStatus,
+  scoringPaused,
+  scoringFrozenAt,
   onClose,
   onComplete,
   onAccount,
@@ -901,6 +927,8 @@ function ProblemModal({
   user: User | null;
   isSolved: boolean;
   scoringStatus?: ScoringStatus;
+  scoringPaused?: boolean;
+  scoringFrozenAt?: string | null;
   onClose: () => void;
   onComplete: () => Promise<void>;
   onAccount: () => void;
@@ -912,6 +940,8 @@ function ProblemModal({
   const [hint, setHint] = useState(false);
   const ref = useDialog(onClose);
   const level = LEVELS[p.level];
+  const paused = Boolean(scoringPaused || result?.awardPaused);
+  const frozenAt = scoringFrozenAt ?? result?.scoringFrozenAt;
   async function answer() {
     if (choice === null || busy) return;
     setBusy(true);
@@ -964,7 +994,7 @@ function ProblemModal({
               {p.estimatedMinutes} 分
             </span>
             <span className="solver-points">
-              +{formatPointIncome(level.points)} 轟
+              {paused ? "加点停止中" : `+${formatPointIncome(level.points)} 轟`}
             </span>
           </div>
           <h2 id="problem-title">{p.title}</h2>
@@ -972,7 +1002,13 @@ function ProblemModal({
           <div className="solver-formula">
             <MathText display>{p.formula}</MathText>
           </div>
-          {!result && <ScoringNotice status={scoringStatus} />}
+          {!result && (
+            <ScoringNotice
+              status={scoringStatus}
+              paused={paused}
+              frozenAt={frozenAt}
+            />
+          )}
           <div
             className="answer-choices"
             role="group"
@@ -1033,7 +1069,9 @@ function ProblemModal({
                 {isSolved
                   ? "この問題は正解済みです。復習しても重複加点されません。"
                   : user
-                    ? "正解すると轟が記録されます。"
+                    ? paused
+                      ? "現在は加点を停止しています。正解の学習記録は残ります。"
+                      : "正解すると轟が記録されます。"
                     : "お試しで解けます。学習記録の保存にはログインが必要です。"}
               </p>
             </>
@@ -1062,6 +1100,9 @@ function ProblemModal({
               <ScoringNotice
                 status={result.scoring}
                 awardBlocked={result.awardBlocked}
+                paused={paused}
+                frozenAt={frozenAt}
+                awardPaused={result.correct && paused}
               />
               <div className="explanation">
                 <span className="eyebrow">解説</span>
