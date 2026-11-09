@@ -7,6 +7,7 @@ import type {
   Level,
   Leaderboard,
   RankingEntry,
+  ScoringStatus,
 } from "../shared/types.js";
 
 export interface UserRow {
@@ -35,6 +36,8 @@ export interface SolveInput {
 export interface SolveRecord {
   pointsEarned: number;
   alreadySolved: boolean;
+  scoring: ScoringStatus;
+  awardBlocked: boolean;
 }
 export interface LifetimeTotal {
   userId: number;
@@ -44,9 +47,13 @@ export interface LifetimeTotal {
 }
 export const MAX_SOURCE_POINTS = 1_000_000_000;
 export function validLifetimeIds(value: unknown): value is number[] {
-  return Array.isArray(value) && value.length >= 1 && value.length <= 100 &&
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 100 &&
     value.every((id) => Number.isInteger(id) && id >= 1 && id <= 2147483647) &&
-    new Set(value).size === value.length;
+    new Set(value).size === value.length
+  );
 }
 export interface Store {
   db?: Database;
@@ -91,6 +98,14 @@ function withStreak(stats: Stats, today: string): Stats {
   }
   return { ...stats, streak };
 }
+function scoringStatus(mistakes = 0, correctStreak = 0): ScoringStatus {
+  return {
+    mistakes,
+    correctStreak,
+    requiredCorrectStreak: 3,
+    locked: mistakes === 2,
+  };
+}
 export function emptyStats(): Stats {
   return {
     totalPoints: 0,
@@ -100,6 +115,7 @@ export function emptyStats(): Stats {
     solvedIds: [],
     levelCounts: { basic: 0, applied: 0, advanced: 0 },
     streak: 0,
+    scoring: scoringStatus(),
   };
 }
 
@@ -173,29 +189,90 @@ export class SqliteStore implements Store {
       .run(limitKey(key));
   }
   async recordSolve(input: SolveInput): Promise<SolveRecord> {
-    if (!input.correct)
-      return {
-        pointsEarned: 0,
-        alreadySolved: !!this.db
-          .prepare("SELECT 1 FROM solves WHERE user_id = ? AND problem_id = ?")
-          .get(input.userId, input.problemId),
+    const expectedPoints = { basic: 1, applied: 3, advanced: 5 }[input.level];
+    if (
+      !expectedPoints ||
+      input.points !== expectedPoints ||
+      typeof input.correct !== "boolean"
+    )
+      throw new Error("Invalid problem points.");
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      if (!this.db.prepare("SELECT 1 FROM users WHERE id=?").get(input.userId))
+        throw new Error("Account not found.");
+      this.db
+        .prepare(
+          "INSERT INTO scoring_state(user_id) VALUES(?) ON CONFLICT(user_id) DO NOTHING",
+        )
+        .run(input.userId);
+      const state = this.db
+        .prepare(
+          "SELECT mistakes,correct_streak FROM scoring_state WHERE user_id=?",
+        )
+        .get(input.userId)!;
+      let mistakes = Number(state.mistakes);
+      let correctStreak = Number(state.correct_streak);
+      const alreadySolved = !!this.db
+        .prepare("SELECT 1 FROM solves WHERE user_id=? AND problem_id=?")
+        .get(input.userId, input.problemId);
+      let pointsEarned = 0;
+      let awardBlocked = false;
+      if (!alreadySolved) {
+        if (!input.correct) {
+          mistakes = Math.min(2, mistakes + 1);
+          correctStreak = 0;
+        } else {
+          if (mistakes === 2 && correctStreak < 2) {
+            correctStreak++;
+            awardBlocked = true;
+          } else {
+            pointsEarned = expectedPoints;
+            if (mistakes === 2) {
+              mistakes = 0;
+              correctStreak = 0;
+            }
+          }
+          // A zero-point correct answer is still a permanent learning receipt;
+          // replaying it cannot advance recovery or claim a later award.
+          this.db
+            .prepare(
+              "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES(?,?,?,?,?,?)",
+            )
+            .run(
+              input.userId,
+              input.problemId,
+              input.level,
+              pointsEarned,
+              input.solvedAt,
+              input.date,
+            );
+        }
+        this.db
+          .prepare(
+            "UPDATE scoring_state SET mistakes=?,correct_streak=? WHERE user_id=?",
+          )
+          .run(mistakes, correctStreak, input.userId);
+      }
+      const result = {
+        pointsEarned,
+        alreadySolved,
+        scoring: scoringStatus(mistakes, correctStreak),
+        awardBlocked,
       };
-    const row = this.db
-      .prepare(
-        "INSERT INTO solves(user_id,problem_id,level,points,solved_at,solved_date) VALUES (?,?,?,?,?,?) ON CONFLICT(user_id,problem_id) DO NOTHING RETURNING points",
-      )
-      .get(
-        input.userId,
-        input.problemId,
-        input.level,
-        input.points,
-        input.solvedAt,
-        input.date,
-      );
-    return { pointsEarned: row ? Number(row.points) : 0, alreadySolved: !row };
+      this.db.exec("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        /* Preserve the original write error. */
+      }
+      throw error;
+    }
   }
   async lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]> {
-    if (!validLifetimeIds(userIds)) throw new Error("Invalid lifetime source IDs.");
+    if (!validLifetimeIds(userIds))
+      throw new Error("Invalid lifetime source IDs.");
     const get = this.db.prepare(
       "SELECT total_points,deleted FROM lifetime_totals WHERE user_id=?",
     );
@@ -216,7 +293,7 @@ export class SqliteStore implements Store {
   ): Promise<Stats> {
     const aggregate = this.db
       .prepare(
-        "SELECT COALESCE(SUM(points),0) AS totalPoints, COALESCE(SUM(CASE WHEN solved_date >= ? THEN points ELSE 0 END),0) AS weeklyPoints, COUNT(*) AS solvedCount FROM solves WHERE user_id = ?",
+        "SELECT COALESCE(SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END),0) AS totalPoints, COALESCE(SUM(CASE WHEN s.solved_date >= ? AND v.user_id IS NULL THEN s.points ELSE 0 END),0) AS weeklyPoints, COUNT(*) AS solvedCount FROM solves s LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id WHERE s.user_id = ?",
       )
       .get(weekStart, userId) as unknown as Pick<
       Stats,
@@ -224,7 +301,7 @@ export class SqliteStore implements Store {
     >;
     const activity = this.db
       .prepare(
-        "SELECT solved_date AS date, COUNT(*) AS count, SUM(points) AS points FROM solves WHERE user_id = ? GROUP BY solved_date ORDER BY solved_date",
+        "SELECT s.solved_date AS date, COUNT(*) AS count, SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END) AS points FROM solves s LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id WHERE s.user_id = ? GROUP BY s.solved_date ORDER BY s.solved_date",
       )
       .all(userId) as unknown as Stats["activity"];
     const solvedIds = this.db
@@ -240,8 +317,23 @@ export class SqliteStore implements Store {
       )
       .all(userId))
       levelCounts[row.level as Level] = Number(row.count);
+    const state = this.db
+      .prepare(
+        "SELECT mistakes,correct_streak FROM scoring_state WHERE user_id=?",
+      )
+      .get(userId);
     return withStreak(
-      { ...aggregate, activity, solvedIds, levelCounts, streak: 0 },
+      {
+        ...aggregate,
+        activity,
+        solvedIds,
+        levelCounts,
+        streak: 0,
+        scoring: scoringStatus(
+          Number(state?.mistakes || 0),
+          Number(state?.correct_streak || 0),
+        ),
+      },
       today,
     );
   }
@@ -251,8 +343,9 @@ export class SqliteStore implements Store {
     weekStart: string,
   ): Promise<Leaderboard> {
     const query = `WITH totals AS (
-      SELECT u.id, u.username, COALESCE(SUM(s.points),0) AS points FROM users u
-      LEFT JOIN solves s ON s.user_id = u.id ${period === "week" ? "AND s.solved_date >= ?" : ""} GROUP BY u.id
+      SELECT u.id, u.username, COALESCE(SUM(CASE WHEN v.user_id IS NULL THEN s.points ELSE 0 END),0) AS points FROM users u
+      LEFT JOIN solves s ON s.user_id = u.id ${period === "week" ? "AND s.solved_date >= ?" : ""}
+      LEFT JOIN scoring_voids v ON v.user_id=s.user_id AND v.problem_id=s.problem_id GROUP BY u.id
     ), ranked AS (SELECT *, RANK() OVER (ORDER BY points DESC) AS rank FROM totals)
     SELECT id, username, points, rank FROM ranked`;
     const parameters = period === "week" ? [weekStart] : [];
@@ -367,24 +460,43 @@ export class SupabaseStore implements Store {
     return this.rpc<SolveRecord>("solve_record", { ...input });
   }
   async lifetimeTotals(userIds: number[]): Promise<LifetimeTotal[]> {
-    if (!validLifetimeIds(userIds)) throw new Error("Invalid lifetime source IDs.");
-    const response = await this.request(this.endpoint.replace(/dc_store$/, "dc_lifetime_totals"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json", Accept: "application/json",
-        apikey: this.config.publishableKey,
+    if (!validLifetimeIds(userIds))
+      throw new Error("Invalid lifetime source IDs.");
+    const response = await this.request(
+      this.endpoint.replace(/dc_store$/, "dc_lifetime_totals"),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          apikey: this.config.publishableKey,
+        },
+        body: JSON.stringify({
+          p_key: this.config.storeKey,
+          p_user_ids: userIds,
+        }),
+        signal: AbortSignal.timeout(8_000),
       },
-      body: JSON.stringify({ p_key: this.config.storeKey, p_user_ids: userIds }),
-      signal: AbortSignal.timeout(8_000),
-    });
-    if (!response.ok) throw new Error(`Cloud lifetime request failed (${response.status}).`);
+    );
+    if (!response.ok)
+      throw new Error(`Cloud lifetime request failed (${response.status}).`);
     const result: unknown = await response.json();
-    if (!Array.isArray(result) || result.length !== userIds.length ||
-      result.some((item, index) => !item || typeof item !== "object" ||
-        item.userId !== userIds[index] || !Number.isInteger(item.totalPoints) ||
-        item.totalPoints < 0 || item.totalPoints > MAX_SOURCE_POINTS ||
-        typeof item.known !== "boolean" || typeof item.deleted !== "boolean" ||
-        (!item.known && (item.totalPoints !== 0 || !item.deleted)))) {
+    if (
+      !Array.isArray(result) ||
+      result.length !== userIds.length ||
+      result.some(
+        (item, index) =>
+          !item ||
+          typeof item !== "object" ||
+          item.userId !== userIds[index] ||
+          !Number.isInteger(item.totalPoints) ||
+          item.totalPoints < 0 ||
+          item.totalPoints > MAX_SOURCE_POINTS ||
+          typeof item.known !== "boolean" ||
+          typeof item.deleted !== "boolean" ||
+          (!item.known && (item.totalPoints !== 0 || !item.deleted)),
+      )
+    ) {
       throw new Error("Invalid cloud lifetime response.");
     }
     return result as LifetimeTotal[];

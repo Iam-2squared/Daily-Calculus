@@ -61,6 +61,14 @@ export interface AnswerResult {
   explanationFormulas: string[];
   pointsEarned: number;
   alreadySolved: boolean;
+  scoring?: ScoringStatus;
+  awardBlocked?: boolean;
+}
+export interface ScoringStatus {
+  mistakes: number;
+  correctStreak: number;
+  requiredCorrectStreak: 3;
+  locked: boolean;
 }
 export interface User {
   id: number;
@@ -80,6 +88,7 @@ export interface Stats {
   activity: Activity[];
   solvedIds: string[];
   levelCounts: Record<Level, number>;
+  scoring?: ScoringStatus;
 }
 export interface RankingEntry {
   rank: number;

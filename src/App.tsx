@@ -20,11 +20,18 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import type { AnswerResult, Problem, Stats, User } from "../shared/types";
+import type {
+  AnswerResult,
+  Problem,
+  ScoringStatus,
+  Stats,
+  User,
+} from "../shared/types";
 import { DAILY_CATEGORIES, LEVELS } from "../shared/types";
 import { api, EMPTY_STATS } from "./api";
 import { MathText } from "./components/Math";
 import { ChallengeView } from "./components/ChallengeView";
+import { ScoringNotice } from "./components/ScoringNotice";
 import { pointColor } from "./activityColors";
 import { formatPointIncome } from "../shared/currency";
 import {
@@ -190,7 +197,9 @@ export default function App() {
     setStats(EMPTY_STATS);
     setActiveProblem(null);
     setAccountAction(null);
-    setToast("アカウントと学習記録を削除しました。連携済みの轟はKGS11thに残ります。");
+    setToast(
+      "アカウントと学習記録を削除しました。連携済みの轟はKGS11thに残ります。",
+    );
   }
   const nav = NAV.find((n) => n.id === page) || NAV[0];
   return (
@@ -313,6 +322,7 @@ export default function App() {
           {page === "challenge" && (
             <ChallengeView
               user={user}
+              scoringStatus={stats.scoring}
               onComplete={refreshStats}
               onAccount={() => setAuthOpen(true)}
             />
@@ -394,6 +404,7 @@ export default function App() {
           problem={activeProblem}
           user={user}
           isSolved={stats.solvedIds.includes(activeProblem.id)}
+          scoringStatus={stats.scoring}
           onClose={() => setActiveProblem(null)}
           onComplete={refreshStats}
           onAccount={() => {
@@ -492,6 +503,7 @@ function Dashboard({
           </div>
         </div>
       </div>
+      <ScoringNotice status={stats.scoring} />
       <section className="daily-section">
         <div className="section-heading">
           <div className="section-title">
@@ -880,6 +892,7 @@ function ProblemModal({
   problem: p,
   user,
   isSolved,
+  scoringStatus,
   onClose,
   onComplete,
   onAccount,
@@ -887,6 +900,7 @@ function ProblemModal({
   problem: Problem;
   user: User | null;
   isSolved: boolean;
+  scoringStatus?: ScoringStatus;
   onClose: () => void;
   onComplete: () => Promise<void>;
   onAccount: () => void;
@@ -905,7 +919,7 @@ function ProblemModal({
     try {
       const answer = await api.answer(p.id, choice);
       setResult(answer);
-      if (user && answer.correct) await onComplete();
+      if (user) await onComplete();
     } catch (e) {
       setError(e instanceof Error ? e.message : "送信できませんでした。");
     } finally {
@@ -949,13 +963,16 @@ function ProblemModal({
               <Clock3 size={13} />
               {p.estimatedMinutes} 分
             </span>
-            <span className="solver-points">+{formatPointIncome(level.points)} 轟</span>
+            <span className="solver-points">
+              +{formatPointIncome(level.points)} 轟
+            </span>
           </div>
           <h2 id="problem-title">{p.title}</h2>
           <p className="solver-prompt">{p.prompt}</p>
           <div className="solver-formula">
             <MathText display>{p.formula}</MathText>
           </div>
+          {!result && <ScoringNotice status={scoringStatus} />}
           <div
             className="answer-choices"
             role="group"
@@ -1042,6 +1059,10 @@ function ProblemModal({
                   正解は {String.fromCharCode(65 + result.correctIndex)} です。
                 </p>
               )}
+              <ScoringNotice
+                status={result.scoring}
+                awardBlocked={result.awardBlocked}
+              />
               <div className="explanation">
                 <span className="eyebrow">解説</span>
                 {result.explanation.map((line, i) => (

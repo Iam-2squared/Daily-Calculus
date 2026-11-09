@@ -34,12 +34,12 @@ create table if not exists daily_calculus.solves (
   user_id integer not null references daily_calculus.users(id) on delete cascade,
   problem_id text not null check (char_length(problem_id) between 1 and 80),
   level text not null check (level in ('basic','applied','advanced')),
-  points integer not null,
+  points integer not null check(points in (0,1,3,5)),
   solved_at timestamptz not null,
   solved_date date not null,
   primary key (user_id, problem_id),
   constraint dc_points_match_level check (
-    (level = 'basic' and points = 1) or
+    points=0 or (level = 'basic' and points = 1) or
     (level = 'applied' and points = 3) or
     (level = 'advanced' and points = 5)
   )
@@ -51,6 +51,33 @@ create table if not exists daily_calculus.auth_attempts (
   expires_at bigint not null
 );
 create index if not exists dc_attempts_expiry on daily_calculus.auth_attempts(expires_at);
+
+create table if not exists daily_calculus.scoring_voids (
+  user_id integer not null,
+  problem_id text not null,
+  original_points integer not null check(original_points in (1,3,5)),
+  reason text not null check(char_length(reason) between 1 and 200),
+  voided_at timestamptz not null default now(),
+  primary key(user_id,problem_id),
+  foreign key(user_id,problem_id) references daily_calculus.solves(user_id,problem_id) on delete cascade
+);
+create table if not exists daily_calculus.scoring_state (
+  user_id integer primary key references daily_calculus.users(id) on delete cascade,
+  mistakes integer not null default 0 check(mistakes between 0 and 2),
+  correct_streak integer not null default 0 check(correct_streak between 0 and 2),
+  check(correct_streak=0 or mistakes=2)
+);
+create table if not exists daily_calculus.scoring_reset_operations (
+  reset_id uuid primary key,
+  solved_date date not null,
+  created_at timestamptz not null default now(),
+  manifest jsonb not null check(pg_catalog.jsonb_typeof(manifest)='array')
+);
+alter table daily_calculus.scoring_reset_operations enable row level security;
+revoke all on daily_calculus.scoring_reset_operations from public, anon, authenticated;
+
+alter table daily_calculus.scoring_voids enable row level security;
+alter table daily_calculus.scoring_state enable row level security;
 
 alter table daily_calculus.settings enable row level security;
 alter table daily_calculus.users enable row level security;
@@ -85,6 +112,10 @@ declare
   v_period text;
   v_level text;
   v_points integer;
+  v_mistakes integer;
+  v_correct_streak integer;
+  v_awarded_points integer;
+  v_award_blocked boolean;
 begin
   select s.store_key_sha256 into v_expected
     from daily_calculus.settings as s where s.singleton = true;
@@ -161,38 +192,89 @@ begin
 
   when 'solve_record' then
     v_user_id := (p_payload->>'userId')::integer;
-    select exists(select 1 from daily_calculus.solves as s
-      where s.user_id = v_user_id and s.problem_id = p_payload->>'problemId') into v_exists;
-    v_changed := 0;
-    if (p_payload->>'correct')::boolean then
-      v_level := p_payload->>'level';
-      v_points := case v_level when 'basic' then 1 when 'applied' then 3 when 'advanced' then 5 else null end;
-      if v_points is null or (p_payload->>'points')::integer is distinct from v_points then
-        raise exception 'Invalid problem points' using errcode = '22023';
-      end if;
-      insert into daily_calculus.solves(user_id, problem_id, level, points, solved_at, solved_date)
-        values (v_user_id, p_payload->>'problemId', v_level, v_points,
-                (p_payload->>'solvedAt')::timestamptz, (p_payload->>'date')::date)
-        on conflict (user_id, problem_id) do nothing;
-      get diagnostics v_changed = row_count;
-      -- A concurrent request may have inserted after the first exists check.
-      v_exists := v_changed = 0;
+    if v_user_id is null or v_user_id <= 0 or
+       pg_catalog.jsonb_typeof(p_payload->'correct') is distinct from 'boolean' then
+      raise exception 'Invalid solve payload' using errcode = '22023';
     end if;
-    return pg_catalog.jsonb_build_object('pointsEarned', case when v_changed = 1 then v_points else 0 end, 'alreadySolved', v_exists);
+    -- Every answer for an account serializes on the parent row. This also
+    -- serializes against account deletion and works across Function instances.
+    perform 1 from daily_calculus.users as u where u.id=v_user_id for update;
+    if not found then raise exception 'Unknown solve account' using errcode = '23503'; end if;
+    insert into daily_calculus.scoring_state(user_id) values(v_user_id)
+      on conflict(user_id) do nothing;
+    select st.mistakes, st.correct_streak into v_mistakes, v_correct_streak
+      from daily_calculus.scoring_state as st where st.user_id=v_user_id for update;
+    select exists(select 1 from daily_calculus.solves as s
+      where s.user_id=v_user_id and s.problem_id=p_payload->>'problemId') into v_exists;
+    v_awarded_points := 0;
+    v_award_blocked := false;
+    if not v_exists then
+      if (p_payload->>'correct')::boolean then
+        v_level := p_payload->>'level';
+        v_points := case v_level when 'basic' then 1 when 'applied' then 3 when 'advanced' then 5 else null end;
+        if v_points is null or (p_payload->>'points')::integer is distinct from v_points then
+          raise exception 'Invalid problem points' using errcode = '22023';
+        end if;
+        v_awarded_points := case when v_mistakes=2 and v_correct_streak<2 then 0 else v_points end;
+        insert into daily_calculus.solves(user_id,problem_id,level,points,solved_at,solved_date)
+          values(v_user_id,p_payload->>'problemId',v_level,v_awarded_points,
+                 (p_payload->>'solvedAt')::timestamptz,(p_payload->>'date')::date)
+          on conflict(user_id,problem_id) do nothing;
+        get diagnostics v_changed = row_count;
+        if v_changed=1 then
+          if v_mistakes=2 and v_correct_streak<2 then
+            v_correct_streak := v_correct_streak+1;
+            v_award_blocked := true;
+          elsif v_mistakes=2 then
+            -- The third distinct recovery correct answer earns its normal
+            -- difficulty points and restores the account's scoring state.
+            v_mistakes := 0;
+            v_correct_streak := 0;
+          end if;
+        else
+          -- Preserve state even if an older in-flight writer won the insert.
+          v_exists := true;
+          v_awarded_points := 0;
+        end if;
+      else
+        v_mistakes := least(2,v_mistakes+1);
+        if v_mistakes=2 then v_correct_streak := 0; end if;
+      end if;
+      update daily_calculus.scoring_state
+        set mistakes=v_mistakes, correct_streak=v_correct_streak
+        where user_id=v_user_id;
+    end if;
+    return pg_catalog.jsonb_build_object(
+      'pointsEarned',v_awarded_points,
+      'alreadySolved',v_exists,
+      'scoring',pg_catalog.jsonb_build_object('mistakes',v_mistakes,'correctStreak',v_correct_streak,'requiredCorrectStreak',3,'locked',v_mistakes=2),
+      'awardBlocked',v_award_blocked
+    );
 
   when 'stats' then
     v_user_id := (p_payload->>'userId')::integer;
     v_week := (p_payload->>'weekStart')::date;
     select pg_catalog.jsonb_build_object(
-      'totalPoints', coalesce(sum(s.points), 0),
-      'weeklyPoints', coalesce(sum(s.points) filter(where s.solved_date >= v_week), 0),
+      'totalPoints', coalesce(sum(case when sv.user_id is not null then 0 else s.points end), 0),
+      'weeklyPoints', coalesce(sum(case when sv.user_id is not null then 0 else s.points end) filter(where s.solved_date >= v_week), 0),
       'solvedCount', count(*),
       'streak', 0,
+      'scoring',coalesce((select pg_catalog.jsonb_build_object(
+        'mistakes',st.mistakes,'correctStreak',st.correct_streak,'requiredCorrectStreak',3,'locked',st.mistakes=2)
+        from daily_calculus.scoring_state as st where st.user_id=v_user_id),
+        '{"mistakes":0,"correctStreak":0,"requiredCorrectStreak":3,"locked":false}'::jsonb),
       'activity', coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('date', a.solved_date, 'count', a.count, 'points', a.points) order by a.solved_date)
-        from (select sa.solved_date, count(*) as count, sum(sa.points) as points from daily_calculus.solves as sa where sa.user_id = v_user_id group by sa.solved_date) as a), '[]'::jsonb),
+        from (select sa.solved_date, count(*) as count,
+                     sum(case when av.user_id is not null then 0 else sa.points end) as points
+              from daily_calculus.solves as sa
+              left join daily_calculus.scoring_voids as av
+                on av.user_id=sa.user_id and av.problem_id=sa.problem_id
+              where sa.user_id = v_user_id group by sa.solved_date) as a), '[]'::jsonb),
       'solvedIds', coalesce(pg_catalog.jsonb_agg(s.problem_id order by s.solved_at desc), '[]'::jsonb),
       'levelCounts', pg_catalog.jsonb_build_object('basic', count(*) filter(where s.level = 'basic'), 'applied', count(*) filter(where s.level = 'applied'), 'advanced', count(*) filter(where s.level = 'advanced'))
-    ) into v_result from daily_calculus.solves as s where s.user_id = v_user_id;
+    ) into v_result from daily_calculus.solves as s
+      left join daily_calculus.scoring_voids as sv on sv.user_id=s.user_id and sv.problem_id=s.problem_id
+      where s.user_id = v_user_id;
     return v_result;
 
   when 'rankings' then
@@ -203,9 +285,11 @@ begin
       raise exception 'Invalid ranking period' using errcode = '22023';
     end if;
     with totals as (
-      select u.id, u.username, coalesce(sum(s.points), 0) as points
+      select u.id, u.username,
+             coalesce(sum(case when sv.user_id is not null then 0 else s.points end), 0) as points
         from daily_calculus.users as u left join daily_calculus.solves as s
           on s.user_id = u.id and (v_period = 'all' or s.solved_date >= v_week)
+        left join daily_calculus.scoring_voids as sv on sv.user_id=s.user_id and sv.problem_id=s.problem_id
         group by u.id
     ), ranked as (
       select t.*, rank() over(order by t.points desc) as rank from totals as t

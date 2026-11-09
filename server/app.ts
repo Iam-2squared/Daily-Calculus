@@ -457,6 +457,8 @@ export function createApp(databasePath?: string, options: Options = {}) {
       return void res.status(400).json({ error: "解答を1つ選んでください。" });
     const user: User | undefined = res.locals.user;
     const correct = choice === problem.correctIndex;
+    // Every authenticated mode shares the store's atomic, account-wide gate.
+    // Only the committed award below is eligible for external wallet syncing.
     const result = user
       ? await store.recordSolve({
           userId: user.id,

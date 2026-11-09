@@ -19,6 +19,7 @@ import type {
   ChallengeSubject,
   Level,
   Problem,
+  ScoringStatus,
   TimeAttackRun,
   User,
 } from "../../shared/types";
@@ -26,6 +27,7 @@ import { CHALLENGE_SUBJECTS, LEVELS } from "../../shared/types";
 import { api } from "../api";
 import { formatPointIncome } from "../../shared/currency";
 import { MathText } from "./Math";
+import { ScoringNotice } from "./ScoringNotice";
 import "../challenge.css";
 
 type Phase = "setup" | "active" | "finishing" | "finished";
@@ -58,10 +60,12 @@ export function ChallengeView({
   user,
   onComplete,
   onAccount,
+  scoringStatus,
 }: {
   user: User | null;
   onComplete: () => Promise<void>;
   onAccount: () => void;
+  scoringStatus?: ScoringStatus;
 }) {
   const [level, setLevel] = useState<Level>("basic");
   const [mode, setMode] = useState<ChallengeMode>("practice");
@@ -294,6 +298,7 @@ export function ChallengeView({
   };
 
   const refresh = async () => {
+    if (!user) return;
     const id = generation.current;
     setRefreshBusy(true);
     try {
@@ -331,7 +336,7 @@ export function ChallengeView({
         runRef.current?.token,
       );
       if (!isCurrent(id)) {
-        if (response.correct) {
+        if (user) {
           try {
             await onComplete();
           } catch {
@@ -352,7 +357,7 @@ export function ChallengeView({
       setResult(response);
       setExplanationOpen(mode === "practice");
       if (finishAfterAnswer.current || hasExpired()) finish("expired");
-      if (response.correct) {
+      if (user) {
         try {
           await onComplete();
         } catch {
@@ -393,6 +398,7 @@ export function ChallengeView({
   ) : null;
   const clock = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
   const active = phase === "active";
+  const currentScoring = result?.scoring ?? scoringStatus;
 
   if (phase === "setup")
     return (
@@ -406,6 +412,7 @@ export function ChallengeView({
           </div>
         </header>
         <div className="surface challenge-setup">
+          <ScoringNotice status={currentScoring} />
           <fieldset
             className="challenge-settings"
             aria-label="出題範囲"
@@ -494,6 +501,12 @@ export function ChallengeView({
           <p className="challenge-rule">
             正解すると基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題の加点は初回のみです。
           </p>
+          <p className="challenge-rule">
+            2問間違えると加点が停止します。未正解の別々の問題に3問連続で正解すると、3問目から加点が再開します。最初の2問は加点されません。
+          </p>
+          <p className="challenge-rule">
+            加点条件は今日の微積・挑戦・過去問で共通です。正解済みの問題は連続正解数に含まれません。
+          </p>
           {!user && (
             <div className="challenge-guest">
               <p>ログインすると轟と学習記録が保存されます。</p>
@@ -538,6 +551,7 @@ export function ChallengeView({
               : "練習結果"}
           </h2>
           <RunTotals totals={totals} user={user} />
+          <ScoringNotice status={currentScoring} />
           <p className="challenge-summary-extra">
             回答数 {totals.answered} 問
             {totals.skipped > 0 && ` / スキップ ${totals.skipped} 問`}
@@ -545,9 +559,7 @@ export function ChallengeView({
               ` / 正答率 ${Math.round((totals.correct / totals.answered) * 100)}%`}
           </p>
           {!user && (
-            <p className="challenge-rule">
-              ゲストのため轟は加算されません。
-            </p>
+            <p className="challenge-rule">ゲストのため轟は加算されません。</p>
           )}
           <div className="challenge-summary-actions">
             <button
@@ -590,7 +602,8 @@ export function ChallengeView({
         <div>
           <h1>{modeName(mode)}</h1>
           <p>
-            <span>{LEVELS[level].name}</span> 正解で {formatPointIncome(LEVELS[level].points)} 轟
+            <span>{LEVELS[level].name}</span> 正解で{" "}
+            {formatPointIncome(LEVELS[level].points)} 轟
           </p>
           <p className="challenge-run-subject">
             出題範囲：{CHALLENGE_SUBJECTS[subject]}
@@ -616,6 +629,7 @@ export function ChallengeView({
         </button>
       </header>
       <RunTotals totals={totals} user={user} />
+      <ScoringNotice status={currentScoring} />
       {!user && (
         <p className="challenge-active-note">
           ゲスト練習：正解数は表示されます。轟の保存にはログインが必要です。
@@ -741,6 +755,9 @@ export function ChallengeView({
                     </p>
                   )}
                 </div>
+                <ScoringNotice
+                  awardBlocked={result.correct && result.awardBlocked}
+                />
                 {result.alreadySolved && (
                   <p className="challenge-rule">
                     正解済みのため、今回の加点はありません。
