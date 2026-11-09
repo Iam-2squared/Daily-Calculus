@@ -36,7 +36,7 @@ function member(value: unknown): value is { id: string; name: string } {
   return typeof m.id === "string" && UUID.test(m.id) && typeof m.name === "string" &&
     m.name.trim() === m.name && Array.from(m.name).length >= 1 && Array.from(m.name).length <= 20;
 }
-function money(value: unknown, step = 50): value is number {
+function money(value: unknown, step = 10): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 &&
     value <= MAX_MONEY && value % step === 0;
 }

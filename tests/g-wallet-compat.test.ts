@@ -14,7 +14,9 @@ test("historical calculus earnings can exceed the shared net total after G losse
   try {
     for (const value of [afterLoss, { ...afterLoss, balance: 0, totalIncome: 0 },
       { ...afterLoss, balance: 150, totalIncome: 10150 },
-      { ...afterLoss, balance: 50, totalIncome: 50 }]) {
+      { ...afterLoss, balance: 50, totalIncome: 50 },
+      { ...afterLoss, balance: 30, totalIncome: 10030 },
+      { ...afterLoss, balance: 980, totalIncome: 10980 }]) {
       assert.deepEqual(linkStatus(value), value);
       globalThis.fetch = async () => new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } });
       assert.deepEqual(await api.kgsLink(), value);

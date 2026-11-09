@@ -41,7 +41,7 @@ async function requestKgs(url: string, options?: RequestInit): Promise<KgsLinkSt
   const value = await request<unknown>(url, options);
   if (!value || typeof value !== "object") throw new ApiError("連携情報を確認できませんでした。", 502);
   const status = value as KgsLinkStatus;
-  const isMoney = (amount: unknown, step = 50): amount is number =>
+  const isMoney = (amount: unknown, step = 10): amount is number =>
     typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0 && amount <= 10_000_000_000_000 && amount % step === 0;
   const valid = typeof status.linked === "boolean" && status.conversionRate === 10_000 && typeof status.syncPending === "boolean" && (
     status.linked
