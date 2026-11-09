@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 dist/
 data/
 .env
@@ -9,3 +9,4 @@ test-results/
 *.log
 
 .vercel/
+supabase/.temp/

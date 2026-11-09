@@ -24,6 +24,7 @@ import type {
 } from "../../shared/types";
 import { CHALLENGE_SUBJECTS, LEVELS } from "../../shared/types";
 import { api } from "../api";
+import { formatPointIncome } from "../../shared/currency";
 import { MathText } from "./Math";
 import "../challenge.css";
 
@@ -438,7 +439,7 @@ export function ChallengeView({
                   onClick={() => setLevel(l)}
                 >
                   <strong>{LEVELS[l].name}</strong>
-                  <span>{LEVELS[l].points} pt / 正解</span>
+                  <span>{formatPointIncome(LEVELS[l].points)} 轟 / 正解</span>
                   {level === l && <Check size={17} />}
                 </button>
               ))}
@@ -491,11 +492,11 @@ export function ChallengeView({
             )}
           </button>
           <p className="challenge-rule">
-            正解すると基礎1・応用3・難関5ポイントを獲得します。同じ問題の加点は初回のみです。
+            正解すると基礎10,000・応用30,000・難関50,000轟を獲得します。同じ問題の加点は初回のみです。
           </p>
           {!user && (
             <div className="challenge-guest">
-              <p>ログインするとポイントと学習記録が保存されます。</p>
+              <p>ログインすると轟と学習記録が保存されます。</p>
               <button onClick={onAccount}>
                 登録・ログイン
                 <ArrowRight size={15} />
@@ -545,7 +546,7 @@ export function ChallengeView({
           </p>
           {!user && (
             <p className="challenge-rule">
-              ゲストのためポイントは加算されません。
+              ゲストのため轟は加算されません。
             </p>
           )}
           <div className="challenge-summary-actions">
@@ -589,7 +590,7 @@ export function ChallengeView({
         <div>
           <h1>{modeName(mode)}</h1>
           <p>
-            <span>{LEVELS[level].name}</span> 正解で {LEVELS[level].points} pt
+            <span>{LEVELS[level].name}</span> 正解で {formatPointIncome(LEVELS[level].points)} 轟
           </p>
           <p className="challenge-run-subject">
             出題範囲：{CHALLENGE_SUBJECTS[subject]}
@@ -617,7 +618,7 @@ export function ChallengeView({
       <RunTotals totals={totals} user={user} />
       {!user && (
         <p className="challenge-active-note">
-          ゲスト練習：正解数は表示されます。ポイントの保存にはログインが必要です。
+          ゲスト練習：正解数は表示されます。轟の保存にはログインが必要です。
         </p>
       )}
       {phase === "finishing" && (
@@ -731,7 +732,7 @@ export function ChallengeView({
                   )}
                   <strong>{result.correct ? "正解" : "不正解"}</strong>
                   {result.pointsEarned > 0 && (
-                    <span>+{result.pointsEarned} pt</span>
+                    <span>+{formatPointIncome(result.pointsEarned)} 轟</span>
                   )}
                   {!result.correct && (
                     <p>
@@ -832,10 +833,10 @@ function RunTotals({ totals, user }: { totals: Totals; user: User | null }) {
         </strong>
       </div>
       <div>
-        <span>{user ? "獲得ポイント" : "ポイント（ゲスト）"}</span>
+        <span>{user ? "獲得額" : "獲得額（ゲスト）"}</span>
         <strong>
-          {totals.points}
-          <small>pt</small>
+          {formatPointIncome(totals.points)}
+          <small>轟</small>
         </strong>
       </div>
     </div>

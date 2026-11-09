@@ -11,6 +11,7 @@ import {
   configuredStore,
   publicUser,
   emptyStats,
+  validLifetimeIds,
   type Store,
 } from "./store.js";
 import { getProblems, getProblem, publicProblem } from "./problems.js";
@@ -23,6 +24,7 @@ import {
   validChallengeInput,
   validChallengeSubject,
 } from "./challenges.js";
+import { KgsIntegration, IntegrationError, exactKeys, type KgsIntegrationOptions } from "./kgs-integration.js";
 
 const scrypt = promisify(scryptCallback);
 const COOKIE = "daily_calculus_session";
@@ -32,6 +34,7 @@ interface Options {
   secureCookies?: boolean;
   store?: Store;
   challengeKey?: string;
+  integration?: KgsIntegrationOptions;
 }
 const tokenHash = (value: string) =>
   createHash("sha256").update(value).digest("hex");
@@ -39,6 +42,7 @@ const tokenHash = (value: string) =>
 export function createApp(databasePath?: string, options: Options = {}) {
   const store = options.store || configuredStore(databasePath);
   const app = express();
+  const integration = new KgsIntegration(options.integration);
   const now = options.now || (() => new Date());
   const challenges = new Challenges(
     options.challengeKey ||
@@ -61,13 +65,25 @@ export function createApp(databasePath?: string, options: Options = {}) {
         req.ip ||
         "unknown"
       : req.ip || "unknown";
-  app.use(express.json({ limit: "8kb" }));
-  app.use(cookieParser());
   app.use("/api", (_req, res, next) => {
     res.set("Cache-Control", "no-store");
     res.set("X-Content-Type-Options", "nosniff");
     next();
   });
+  // Server-to-server read endpoint: authenticate before parsing a body, Origin
+  // checks or browser session lookups. This endpoint never calls Target back.
+  app.all("/api/integrations/target/totals", (req, res, next) => {
+    if (!integration.authorizeSource(req.get("Authorization")))
+      return void res.status(404).json({ error: "ページが見つかりませんでした。" });
+    if (req.method !== "POST") return void res.status(405).json({ error: "送信方法を確認してください。" });
+    next();
+  }, express.json({ limit: "4kb" }), async (req, res) => {
+    if (!exactKeys(req.body, ["userIds"]) || !validLifetimeIds(req.body.userIds))
+      return void res.status(400).json({ error: "送信内容を確認してください。" });
+    res.json({ totals: await store.lifetimeTotals(req.body.userIds) });
+  });
+  app.use(express.json({ limit: "8kb" }));
+  app.use(cookieParser());
   app.use("/api", (req, res, next) => {
     if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
     const origin = req.get("Origin");
@@ -134,6 +150,89 @@ export function createApp(databasePath?: string, options: Options = {}) {
   app.get("/api/session", (_req, res) =>
     res.json({ user: res.locals.user || null }),
   );
+  function requireLinkedSession(res: express.Response): User | null {
+    const user = res.locals.user as User | undefined;
+    if (user) return user;
+    res.status(401).json({ error: "ログインし直してからお試しください。" });
+    return null;
+  }
+  function requireLinkOrigin(req: express.Request, res: express.Response): boolean {
+    const supplied = req.get("Origin");
+    const protocol = process.env.VERCEL === "1" && req.get("x-forwarded-proto") === "https"
+      ? "https" : req.protocol;
+    let matches = false;
+    try {
+      const parsed = new URL(supplied || "");
+      matches = parsed.origin === supplied && parsed.origin === `${protocol}://${req.get("Host")}`;
+    } catch { /* Missing and malformed origins fail closed on linking POSTs. */ }
+    if (matches && req.get("Sec-Fetch-Site") !== "cross-site") return true;
+    res.status(403).json({ error: "この操作はアプリの画面から行ってください。" });
+    return false;
+  }
+  async function sessionStillCurrent(req: express.Request, user: User): Promise<boolean> {
+    const token = req.cookies[COOKIE];
+    if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) return false;
+    return (await store.sessionUser(tokenHash(token), now().getTime()))?.id === user.id;
+  }
+  function validLinkQuery(req: express.Request, route: string): boolean {
+    // Vercel's /api/:path* rewrite adds its matched path to the query. Accept
+    // only that exact routing metadata; query values never supply identity or
+    // earnings, and repeated/mismatched paths remain invalid.
+    // Check raw URLs as well as parsed metadata, so a platform adapter cannot
+    // hide a repeated or conflicting browser value by overwriting req.query.
+    try {
+      for (const raw of new Set([req.url, req.originalUrl])) {
+        let seen = false;
+        for (const [key, value] of new URL(raw, "http://daily-calculus.invalid").searchParams) {
+          if (seen || key !== "path" || value !== route) return false;
+          seen = true;
+        }
+      }
+      return Object.keys(req.query).length === 0 ||
+        (exactKeys(req.query, ["path"]) && req.query.path === route);
+    } catch { return false; }
+  }
+  app.get("/api/kgs-link", async (req, res) => {
+    const user = requireLinkedSession(res);
+    if (!user) return;
+    if (!validLinkQuery(req, "kgs-link")) return void res.status(400).json({ error: "送信内容を確認してください。" });
+    const status = await integration.status(user.id);
+    if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
+    res.json(status);
+  });
+  app.post("/api/kgs-link", async (req, res) => {
+    const user = requireLinkedSession(res);
+    if (!user || !requireLinkOrigin(req, res)) return;
+    if (!validLinkQuery(req, "kgs-link") || !exactKeys(req.body, ["attendanceNumber", "pin"]) ||
+      typeof req.body.attendanceNumber !== "string" || !/^(?:[1-9]|[1-3][0-9]|40|99)$/.test(req.body.attendanceNumber) ||
+      typeof req.body.pin !== "string" || !/^\d{4}$/.test(req.body.pin))
+      return void res.status(400).json({ error: "出席番号と数字4桁の本人用暗証番号を入力してください。" });
+    if (!(await store.consumeLimit(`kgs-link-ip:${clientIp(req)}`, 30, now().getTime())) ||
+      !(await store.consumeLimit(`kgs-link-user:${user.id}`, 10, now().getTime())))
+      return void res.status(429).json({ error: "試行回数が多くなっています。時間をおいてお試しください。" });
+    let proof: string | undefined;
+    let status;
+    try {
+      proof = await integration.login(req.body.attendanceNumber, req.body.pin);
+      // A logout/deletion while the remote PIN check was running must not bind
+      // the stale Daily identity captured at the beginning of the request.
+      if (!(await sessionStillCurrent(req, user)))
+        throw new IntegrationError(401, "ログインし直してからお試しください。");
+      status = await integration.link(user.id, proof);
+    } finally {
+      if (proof) await integration.revoke(proof);
+    }
+    res.json(status);
+  });
+  app.post("/api/kgs-link/sync", async (req, res) => {
+    const user = requireLinkedSession(res);
+    if (!user || !requireLinkOrigin(req, res)) return;
+    if (!validLinkQuery(req, "kgs-link/sync") || !exactKeys(req.body, []))
+      return void res.status(400).json({ error: "送信内容を確認してください。" });
+    const status = await integration.sync(user.id);
+    if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
+    res.json(status);
+  });
   app.post("/api/auth/register", async (req, res) => {
     if (
       !(await store.consumeLimit(
@@ -369,12 +468,20 @@ export function createApp(databasePath?: string, options: Options = {}) {
           correct,
         })
       : { pointsEarned: 0, alreadySolved: false };
+    let creditSyncPending: boolean | undefined;
+    if (user && result.pointsEarned > 0) {
+      // Solve credit is already durable. An offline/slow wallet must never
+      // reject the answer; the next KGS wallet/ranking read repairs delivery.
+      try { creditSyncPending = (await integration.sync(user.id, true)).syncPending; }
+      catch { creditSyncPending = true; }
+    }
     res.json({
       correct,
       correctIndex: problem.correctIndex,
       explanation: problem.explanation,
       explanationFormulas: problem.explanationFormulas,
       ...result,
+      ...(creditSyncPending === undefined ? {} : { creditSyncPending }),
     });
   });
   app.get("/api/stats", async (_req, res) => {
@@ -404,6 +511,8 @@ export function createApp(databasePath?: string, options: Options = {}) {
     ) => {
       res.set("Cache-Control", "no-store");
       if (error instanceof ChallengeError)
+        return void res.status(error.status).json({ error: error.message });
+      if (error instanceof IntegrationError)
         return void res.status(error.status).json({ error: error.message });
       if (
         error instanceof URIError ||

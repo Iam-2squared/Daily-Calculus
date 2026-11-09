@@ -41,7 +41,7 @@ async function earnDailyPoints(
   expect((await response.json()).pointsEarned).toBe(level === "basic" ? 1 : 3);
   await page.reload();
   await expect(page.locator(".account-stats")).toContainText(
-    level === "basic" ? "1pt" : "3pt",
+    level === "basic" ? "10,000轟" : "30,000轟",
   );
 }
 
@@ -72,7 +72,7 @@ test("explicit account deletion can be cancelled, then removes scores and every 
     const otherPage = await otherDevice.newPage();
     await otherPage.goto("/#account");
     await expect(otherPage.locator(".account-profile")).toContainText(username);
-    await expect(otherPage.locator(".account-stats")).toContainText("1pt");
+    await expect(otherPage.locator(".account-stats")).toContainText("10,000轟");
 
     const openDelete = page
       .locator(".account-delete-section")
@@ -139,7 +139,7 @@ test("explicit account deletion can be cancelled, then removes scores and every 
     expect(freshStats.totalPoints).toBe(0);
     expect(freshStats.solvedCount).toBe(0);
     expect(freshStats.activity).toEqual([]);
-    await expect(page.locator(".account-stats")).toContainText("0pt");
+    await expect(page.locator(".account-stats")).toContainText("0轟");
     // The old cookie must not become valid when the deleted username is reused.
     expect(
       (await (await otherDevice.request.get("/api/session")).json()).user,

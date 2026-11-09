@@ -26,6 +26,7 @@ import { api, EMPTY_STATS } from "./api";
 import { MathText } from "./components/Math";
 import { ChallengeView } from "./components/ChallengeView";
 import { pointColor } from "./activityColors";
+import { formatPointIncome } from "../shared/currency";
 import {
   AccountView,
   ArchiveView,
@@ -189,7 +190,7 @@ export default function App() {
     setStats(EMPTY_STATS);
     setActiveProblem(null);
     setAccountAction(null);
-    setToast("アカウントと学習記録・ポイントを削除しました。");
+    setToast("アカウントと学習記録を削除しました。連携済みの轟はKGS11thに残ります。");
   }
   const nav = NAV.find((n) => n.id === page) || NAV[0];
   return (
@@ -450,7 +451,7 @@ function Dashboard({
             <ChartNoAxesColumnIncreasing size={19} />
           </span>
           <div>
-            <span className="stat-label">今日のポイント</span>
+            <span className="stat-label">今日の取得額</span>
             <strong>
               <span
                 className="daily-points-value"
@@ -460,9 +461,9 @@ function Dashboard({
                     : undefined
                 }
               >
-                {todayPoints}
+                {formatPointIncome(todayPoints)}
               </span>
-              <small>pt</small>
+              <small>轟</small>
             </strong>
           </div>
         </div>
@@ -532,8 +533,8 @@ function Dashboard({
                       <span>難易度：{meta.name}</span>
                     </span>
                     <span className="points-badge">
-                      +{meta.points}
-                      <span> pt</span>
+                      +{formatPointIncome(meta.points)}
+                      <span> 轟</span>
                     </span>
                   </div>
                   <div className="problem-formula">
@@ -695,7 +696,7 @@ function AuthModal({
           ユーザーネームと数字4桁のパスワードを入力してください。
         </p>
         <p className="account-lifecycle-note">
-          ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+          ログアウトすると、今日の微積のアカウント・学習記録が削除されます。連携済みの轟と連携履歴はKGS11thに残ります。削除後は元に戻せません。
         </p>
         <div className="auth-tabs">
           <button
@@ -840,7 +841,7 @@ function AccountDeletionModal({
         <h2 id="account-deletion-title">{label}しますか？</h2>
         <p className="deletion-username">{username}</p>
         <p id="account-deletion-description">
-          アカウント・学習記録・ポイントを削除し、ランキングからも削除します。すべての端末でログアウトします。
+          今日の微積のアカウント・学習記録を削除し、このアプリのランキングからも削除します。すべての端末でログアウトします。連携済みの轟と連携履歴はKGS11thに残ります。
           <strong>削除後は元に戻せません。</strong>
         </p>
         {error && (
@@ -948,7 +949,7 @@ function ProblemModal({
               <Clock3 size={13} />
               {p.estimatedMinutes} 分
             </span>
-            <span className="solver-points">+{level.points} pt</span>
+            <span className="solver-points">+{formatPointIncome(level.points)} 轟</span>
           </div>
           <h2 id="problem-title">{p.title}</h2>
           <p className="solver-prompt">{p.prompt}</p>
@@ -1015,7 +1016,7 @@ function ProblemModal({
                 {isSolved
                   ? "この問題は正解済みです。復習しても重複加点されません。"
                   : user
-                    ? "正解するとポイントが記録されます。"
+                    ? "正解すると轟が記録されます。"
                     : "お試しで解けます。学習記録の保存にはログインが必要です。"}
               </p>
             </>
@@ -1033,7 +1034,7 @@ function ProblemModal({
                 )}
                 <h3>{result.correct ? "正解" : "不正解"}</h3>
                 {result.pointsEarned > 0 && (
-                  <span>+{result.pointsEarned} pt</span>
+                  <span>+{formatPointIncome(result.pointsEarned)} 轟</span>
                 )}
               </div>
               {!result.correct && (

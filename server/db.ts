@@ -41,6 +41,39 @@ export function openDatabase(path: string) {
     );
     CREATE INDEX IF NOT EXISTS solves_date ON solves(solved_date, user_id);
   `);
+  // The source watermark is independent of account/solve deletion. Only the
+  // opaque, never-reused numeric ID and earned total survive account deletion.
+  // Serialize installation/backfill with writers so an in-flight solve cannot
+  // be counted both by the backfill and the new INSERT trigger.
+  db.exec(`
+    BEGIN IMMEDIATE;
+    CREATE TABLE IF NOT EXISTS lifetime_totals (
+      user_id INTEGER PRIMARY KEY CHECK(user_id BETWEEN 1 AND 2147483647),
+      total_points INTEGER NOT NULL DEFAULT 0
+        CHECK(total_points BETWEEN 0 AND 1000000000),
+      deleted INTEGER NOT NULL DEFAULT 0 CHECK(deleted IN (0,1))
+    );
+    INSERT INTO lifetime_totals(user_id,total_points,deleted)
+      SELECT u.id,COALESCE(SUM(s.points),0),0
+      FROM users u LEFT JOIN solves s ON s.user_id=u.id GROUP BY u.id
+      ON CONFLICT(user_id) DO NOTHING;
+    CREATE TRIGGER IF NOT EXISTS lifetime_user_insert AFTER INSERT ON users
+    BEGIN
+      INSERT INTO lifetime_totals(user_id,total_points,deleted)
+        VALUES(NEW.id,0,0);
+    END;
+    CREATE TRIGGER IF NOT EXISTS lifetime_solve_insert AFTER INSERT ON solves
+    BEGIN
+      UPDATE lifetime_totals SET total_points=total_points+NEW.points
+        WHERE user_id=NEW.user_id AND deleted=0;
+      SELECT CASE WHEN changes()<>1 THEN RAISE(ABORT,'Missing lifetime source') END;
+    END;
+    CREATE TRIGGER IF NOT EXISTS lifetime_user_delete AFTER DELETE ON users
+    BEGIN
+      UPDATE lifetime_totals SET deleted=1 WHERE user_id=OLD.id;
+    END;
+    COMMIT;
+  `);
   return db;
 }
 export type Database = ReturnType<typeof openDatabase>;

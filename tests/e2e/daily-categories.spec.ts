@@ -35,7 +35,7 @@ async function assertDailyCards(page: Page, problems: Problem[]) {
       `難易度：${difficulty.label}`,
     );
     await expect(card.locator(".points-badge")).toHaveText(
-      `+${difficulty.points} pt`,
+      `+${(difficulty.points * 10_000).toLocaleString("ja-JP")} 轟`,
     );
   }
 }
@@ -146,7 +146,7 @@ test("solving the three daily categories earns nine points once and persists aft
     expect(result.pointsEarned).toBe(earned);
     expect(result.alreadySolved).toBe(false);
     await expect(dialog.locator(".result-heading")).toContainText(
-      `+${earned} pt`,
+      `+${(earned * 10_000).toLocaleString("ja-JP")} 轟`,
     );
     await dialog
       .getByRole("button", { name: "閉じる", exact: true })
@@ -154,7 +154,7 @@ test("solving the three daily categories earns nine points once and persists aft
       .click();
     points += earned;
     await expect(page.locator(".stat-item").first()).toContainText(
-      `${points}pt`,
+      `${(points * 10_000).toLocaleString("ja-JP")}轟`,
     );
   }
   expect(points).toBe(9);
@@ -183,10 +183,10 @@ test("solving the three daily categories earns nine points once and persists aft
   expect(stats.activity).toEqual([{ date: daily.date, count: 3, points: 9 }]);
 
   await page.reload();
-  await expect(page.locator(".stat-item").first()).toContainText("9pt");
+  await expect(page.locator(".stat-item").first()).toContainText("90,000轟");
   await expect(page.locator(".problem-card.solved")).toHaveCount(3);
   await expect(page.locator(".calendar-day.has-points")).toHaveCount(1);
-  await expect(page.locator(".calendar-day.has-points")).toContainText("9pt");
+  await expect(page.locator(".calendar-day.has-points")).toContainText("9万轟");
   await assertDailyCards(page, daily.problems);
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });

@@ -1,3 +1,5 @@
+import { compactPointIncome } from "../shared/currency";
+
 export const POINT_COLORS = [
   { min: 1, name: "黄", emoji: "💛", color: "#facc15", foreground: "#422006" },
   { min: 5, name: "橙", emoji: "🧡", color: "#fb923c", foreground: "#431407" },
@@ -53,5 +55,7 @@ export function pointColor(points: number) {
 export function pointRange(index: number) {
   const tier = POINT_COLORS[index];
   const next = POINT_COLORS[index + 1];
-  return next ? `${tier.min}–${next.min - 1}pt` : `${tier.min}pt以上`;
+  return next
+    ? `${compactPointIncome(tier.min)}–${compactPointIncome(next.min - 1)}轟`
+    : `${compactPointIncome(tier.min)}轟以上`;
 }

@@ -26,6 +26,8 @@ import type {
 } from "../../shared/types";
 import { DAILY_CATEGORIES, LEVELS } from "../../shared/types";
 import { api } from "../api";
+import { compactPointIncome, formatPointIncome } from "../../shared/currency";
+import { KgsLinkPanel } from "./KgsLinkPanel";
 import { lessons } from "../lessons";
 import { MathText } from "./Math";
 import { POINT_COLORS, pointColor, pointRange } from "../activityColors";
@@ -133,7 +135,7 @@ export function RankingView({
     <div className="secondary-view">
       <PageHeading
         title="ランキング"
-        description="総合・週間の上位25名と自分の順位を表示します。"
+        description="今日の微積の総合・週間の上位25名と自分の順位を表示します。"
       />
       <div className="ranking-layout">
         <section className="surface ranking-surface">
@@ -157,10 +159,10 @@ export function RankingView({
           <div className="ranking-caption">
             <span>
               {period === "all"
-                ? "累計ポイント"
+                ? "累計取得額"
                 : ranking
-                  ? `${dateLabel(ranking.weekStart)}（月）からの獲得ポイント`
-                  : "今週の獲得ポイント"}
+                  ? `${dateLabel(ranking.weekStart)}（月）からの獲得額`
+                  : "今週の獲得額"}
             </span>
             <span>
               {ranking ? `${ranking.totalUsers} 人が参加中` : "読み込み中…"}
@@ -188,7 +190,7 @@ export function RankingView({
                   <tr>
                     <th>順位</th>
                     <th>ユーザーネーム</th>
-                    <th>ポイント</th>
+                    <th>取得額</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -213,8 +215,8 @@ export function RankingView({
                         )}
                       </td>
                       <td>
-                        {entry.points.toLocaleString()}
-                        <small>pt</small>
+                        {formatPointIncome(entry.points)}
+                        <small>轟</small>
                       </td>
                     </tr>
                   ))}
@@ -233,7 +235,7 @@ export function RankingView({
                 <span>あなたの{period === "all" ? "総合" : "週間"}順位</span>
               </div>
               <strong>
-                {ranking.me.points.toLocaleString()} <small>pt</small>
+                {formatPointIncome(ranking.me.points)} <small>轟</small>
               </strong>
             </div>
           )}
@@ -241,22 +243,22 @@ export function RankingView({
             <div className="ranking-not-yet">
               <Sprout size={17} />
               <p>
-                まだ順位はありません。問題に正解するとポイントが加算されます。
+                まだ順位はありません。問題に正解すると轟が加算されます。
               </p>
             </div>
           )}
         </section>
         <aside className="ranking-aside">
           <div className="points-guide surface">
-            <h2>獲得ポイント</h2>
+            <h2>獲得額</h2>
             <div className="point-rules">
               {(Object.keys(LEVELS) as Level[]).map((level) => (
                 <div key={level}>
                   <span className={`level-dot ${level}`} />
                   <span>{LEVELS[level].name}</span>
                   <strong>
-                    +{LEVELS[level].points}
-                    <small>pt</small>
+                    +{formatPointIncome(LEVELS[level].points)}
+                    <small>轟</small>
                   </strong>
                 </div>
               ))}
@@ -404,11 +406,6 @@ export function CalendarView({
   );
   const currentActivity = stats.activity.find((a) => a.date === selected);
   const currentColor = pointColor(currentActivity?.points ?? 0);
-  const compactPoints = (points: number) =>
-    new Intl.NumberFormat("en", {
-      notation: "compact",
-      maximumFractionDigits: 0,
-    }).format(points);
   const monthSolved = monthActivity.reduce((sum, a) => sum + a.count, 0);
   const monthPoints = monthActivity.reduce((sum, a) => sum + a.points, 0);
   const shiftMonth = (delta: number) => {
@@ -431,7 +428,7 @@ export function CalendarView({
         <>
           <PageHeading
             title="学習カレンダー"
-            description="日ごとの獲得ポイントに応じて、カレンダーが11色に変わります。"
+            description="日ごとの獲得額に応じて、カレンダーが11色に変わります。"
           />
           <div className="calendar-summary">
             <div className="surface calendar-stat">
@@ -456,11 +453,11 @@ export function CalendarView({
             </div>
             <div className="surface calendar-stat">
               <span>
-                <Sprout size={18} /> 今月の獲得ポイント
+                <Sprout size={18} /> 今月の獲得額
               </span>
               <strong>
-                {monthPoints}
-                <small>pt</small>
+                {formatPointIncome(monthPoints)}
+                <small>轟</small>
               </strong>
               <p>初回正解分の合計</p>
             </div>
@@ -530,22 +527,20 @@ export function CalendarView({
                         }
                       : undefined
                   }
-                  aria-label={`${dateLabel(date)} ${activity ? `${activity.count}問正解、${activity.points}ポイント${tier ? `、${tier.name}` : ""}` : "学習記録なし、0ポイント"}`}
+                  aria-label={`${dateLabel(date)} ${activity ? `${activity.count}問正解、${formatPointIncome(activity.points)}轟${tier ? `、${tier.name}` : ""}` : "学習記録なし、0轟"}`}
                   aria-pressed={date === selected}
                   aria-current={date === today ? "date" : undefined}
                   title={
                     activity
-                      ? `${activity.points}pt・${activity.count}問正解`
+                      ? `${formatPointIncome(activity.points)}轟・${activity.count}問正解`
                       : "学習記録なし"
                   }
                 >
                   <span>{i + 1}</span>
                   {tier && activity ? (
                     <span className="calendar-day-points">
-                      {activity.points >= 1000
-                        ? compactPoints(activity.points)
-                        : activity.points}
-                      {activity.points < 1000 && <span>pt</span>}
+                      {compactPointIncome(activity.points)}
+                      <span>轟</span>
                     </span>
                   ) : (
                     <span className="day-placeholder" />
@@ -557,13 +552,13 @@ export function CalendarView({
           </div>
           <div
             className="point-calendar-legend"
-            aria-label="1日の獲得ポイントと色"
+            aria-label="1日の獲得額と色"
           >
-            <p>1日の獲得ポイント</p>
+            <p>1日の獲得額</p>
             <div className="point-calendar-colors">
               <span className="point-legend-chip">
                 <i className="point-swatch-empty" />
-                <span>0pt</span>
+                <span>0轟</span>
               </span>
               {POINT_COLORS.map((tier, index) => (
                 <span
@@ -618,8 +613,8 @@ export function CalendarView({
                     : undefined
                 }
               >
-                +{currentActivity.points}
-                <small>pt</small>
+                +{formatPointIncome(currentActivity.points)}
+                <small>轟</small>
               </div>
               {currentColor && (
                 <span className="selected-day-color">
@@ -641,7 +636,7 @@ export function CalendarView({
             </>
           )}
           <div className="day-detail-note">
-            色は、その日に獲得したポイントで決まります。
+            色は、その日に獲得した轟で決まります。
             <br />
             日付の切り替わりは日本時間 0:00 です。
           </div>
@@ -699,9 +694,9 @@ export function ArchiveView({
       <div className="archive-topline surface">
         <div>
           <BookOpen size={22} strokeWidth={1.4} />
-          <p>過去問のポイント</p>
+          <p>過去問の報酬</p>
         </div>
-        <span>初めて正解した問題は、今日のポイントに加算されます。</span>
+        <span>初めて正解した問題は、今日の取得額に加算されます。</span>
       </div>
       <div className="view-filter-row archive-filters">
         <div className="filter-pills" aria-label="過去問の難易度">
@@ -715,7 +710,7 @@ export function ArchiveView({
               }}
             >
               {l === "all" ? "すべて" : LEVELS[l].name}
-              {l !== "all" && <small>+{LEVELS[l].points}pt</small>}
+              {l !== "all" && <small>+{formatPointIncome(LEVELS[l].points)}轟</small>}
             </button>
           ))}
         </div>
@@ -764,7 +759,7 @@ export function ArchiveView({
                   <span className={`archive-level ${p.level}`}>
                     {p.dailyCategory && "難易度："}
                     {LEVELS[p.level].name}
-                    <small>+{LEVELS[p.level].points}pt</small>
+                    <small>+{formatPointIncome(LEVELS[p.level].points)}轟</small>
                   </span>
                   <span>{dateLabel(p.date)}</span>
                 </div>
@@ -851,12 +846,12 @@ export function AccountView({
           <p>
             ユーザーネームと4桁の数字パスワードで登録・ログインできます。
             <br />
-            ログインすると、学習記録とポイントが保存されます。
+            ログインすると、学習記録と轟が保存されます。
           </p>
           <div className="account-removal-notice" role="note">
             <AlertTriangle size={18} aria-hidden="true" />
             <p>
-              ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+              ログアウトすると、今日の微積のアカウント・学習記録が削除されます。連携済みの轟と連携履歴はKGS11thに残ります。削除後は元に戻せません。
             </p>
           </div>
           <button className="button button-primary" onClick={onAccount}>
@@ -901,16 +896,17 @@ export function AccountView({
           >
             <AlertTriangle size={18} aria-hidden="true" />
             <p>
-              ログアウトすると、アカウント・学習記録・ポイントが削除されます。削除後は元に戻せません。
+              ログアウトすると、今日の微積のアカウント・学習記録が削除されます。連携済みの轟と連携履歴はKGS11thに残ります。削除後は元に戻せません。
             </p>
           </div>
+          <KgsLinkPanel key={user.id} />
           <div className="account-stats">
             <div className="surface">
               <Trophy size={21} strokeWidth={1.5} />
-              <span>総獲得ポイント</span>
+              <span>総取得（微積）</span>
               <strong>
-                {stats.totalPoints.toLocaleString()}
-                <small>pt</small>
+                {formatPointIncome(stats.totalPoints)}
+                <small>轟</small>
               </strong>
             </div>
             <div className="surface">
@@ -967,7 +963,7 @@ export function AccountView({
             <div>
               <h2 id="account-delete-heading">アカウントの削除</h2>
               <p id="account-delete-description">
-                アカウント・学習記録・ポイントを削除します。削除後は元に戻せません。
+                今日の微積のアカウント・学習記録を削除します。連携済みの轟と連携履歴はKGS11thに残ります。削除後は元に戻せません。
               </p>
             </div>
             <button
