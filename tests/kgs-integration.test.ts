@@ -39,7 +39,7 @@ async function harness(request: typeof fetch = async () => json(unlinked), extra
   }
   const account = await call("/api/auth/register", { body: { username: "微積連携", password: "0000" } });
   assert.equal(account.status, 201);
-  return { store, base, call, cookie: account.cookie!, userId: account.body.user.id,
+  return { app, store, base, call, cookie: account.cookie!, userId: account.body.user.id,
     close: () => new Promise<void>((resolve, reject) => server.close((error) => { store.db.close(); error ? reject(error) : resolve(); })) };
 }
 
@@ -139,6 +139,69 @@ test("link requires both browser session and strict Origin, sends only current i
   assert.ok(!JSON.stringify(result.body).includes(proof));
   assert.equal((await h.call("/api/kgs-link/sync", { body: {}, cookie: h.cookie })).status, 200);
   assert.deepEqual(calls.at(-1), { host: "wallet.example", action: "sync", body: { userId: h.userId } });
+});
+
+test("Vercel matched-path metadata works on status, link and sync while forged or repeated queries fail", async (t) => {
+  const calls: { action: string; body: Record<string, unknown> }[] = [];
+  const h = await harness(async (input, init) => {
+    const action = new URL(String(input)).pathname.split("/").at(-1)!;
+    calls.push({ action, body: JSON.parse(String(init?.body)) });
+    if (action === "login") return json({ token: proof, member });
+    if (action === "logout") return json({ ok: true });
+    return json(linked);
+  });
+  t.after(h.close);
+  const credentials = { attendanceNumber: "32", pin: "0000" };
+  assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie })).status, 200);
+  assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie, body: credentials })).status, 200);
+  assert.equal((await h.call("/api/kgs-link/sync?path=kgs-link%2Fsync", { cookie: h.cookie, body: {} })).status, 200);
+  assert.deepEqual(calls, [
+    { action: "status", body: { userId: h.userId } },
+    { action: "login", body: credentials },
+    { action: "link", body: { userId: h.userId, proofToken: proof } },
+    { action: "logout", body: { token: proof } },
+    { action: "sync", body: { userId: h.userId } },
+  ]);
+  const before = calls.length;
+  for (const [path, body, expected] of [
+    ["/api/kgs-link", undefined, "kgs-link"],
+    ["/api/kgs-link", credentials, "kgs-link"],
+    ["/api/kgs-link/sync", {}, "kgs-link/sync"],
+  ] as const) {
+    const encoded = encodeURIComponent(expected);
+    for (const query of [
+      "path=other", "path=", `path=${encoded}&path=${encoded}`,
+      `path=${encoded}&path=other`, `path=${encoded}&userId=999`,
+      `path=${encoded}&totalPoints=999999`, `path=${encoded}&proofToken=${proof}`,
+      "userId=999", `path[]=${encoded}`, "route=" + encoded,
+    ]) {
+      const result = await h.call(path + "?" + query, { cookie: h.cookie, body });
+      assert.equal(result.status, 400, `${path}?${query}`);
+    }
+  }
+  assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie, body: { ...credentials, userId: 999 } })).status, 400);
+  assert.equal((await h.call("/api/kgs-link/sync?path=kgs-link%2Fsync", { cookie: h.cookie, body: { totalPoints: 999999 } })).status, 400);
+  assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie, body: credentials, origin: null })).status, 403);
+  assert.equal((await h.call("/api/kgs-link/sync?path=kgs-link%2Fsync", { cookie: h.cookie, body: {}, origin: "https://evil.example" })).status, 403);
+  assert.equal(calls.length, before, "invalid queries/bodies/Origins never reach the remote identity or wallet");
+});
+
+test("parsed rewrite metadata cannot hide raw duplicates, conflicts or forged query authority", async (t) => {
+  let outgoing = 0;
+  const h = await harness(async () => { outgoing++; return json(unlinked); });
+  t.after(h.close);
+  // Model an adapter that supplies parsed metadata separately from the URL.
+  h.app.set("query parser", () => ({ path: "kgs-link" }));
+  assert.equal((await h.call("/api/kgs-link", { cookie: h.cookie })).status, 200);
+  assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie })).status, 200);
+  for (const query of ["path=wrong", "path=kgs-link&path=kgs-link", "userId=999", "path=kgs-link&balance=999999"]) {
+    assert.equal((await h.call("/api/kgs-link?" + query, { cookie: h.cookie })).status, 400);
+  }
+  for (const metadata of [{ path: ["kgs-link"] }, { path: "wrong" }, { path: "kgs-link", userId: "999" }]) {
+    h.app.set("query parser", () => metadata);
+    assert.equal((await h.call("/api/kgs-link?path=kgs-link", { cookie: h.cookie })).status, 400);
+  }
+  assert.equal(outgoing, 2);
 });
 
 test("logout during remote PIN verification prevents linking the stale Daily session and still revokes proof", async (t) => {

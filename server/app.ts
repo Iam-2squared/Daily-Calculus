@@ -174,10 +174,28 @@ export function createApp(databasePath?: string, options: Options = {}) {
     if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token)) return false;
     return (await store.sessionUser(tokenHash(token), now().getTime()))?.id === user.id;
   }
+  function validLinkQuery(req: express.Request, route: string): boolean {
+    // Vercel's /api/:path* rewrite adds its matched path to the query. Accept
+    // only that exact routing metadata; query values never supply identity or
+    // earnings, and repeated/mismatched paths remain invalid.
+    // Check raw URLs as well as parsed metadata, so a platform adapter cannot
+    // hide a repeated or conflicting browser value by overwriting req.query.
+    try {
+      for (const raw of new Set([req.url, req.originalUrl])) {
+        let seen = false;
+        for (const [key, value] of new URL(raw, "http://daily-calculus.invalid").searchParams) {
+          if (seen || key !== "path" || value !== route) return false;
+          seen = true;
+        }
+      }
+      return Object.keys(req.query).length === 0 ||
+        (exactKeys(req.query, ["path"]) && req.query.path === route);
+    } catch { return false; }
+  }
   app.get("/api/kgs-link", async (req, res) => {
     const user = requireLinkedSession(res);
     if (!user) return;
-    if (Object.keys(req.query).length) return void res.status(400).json({ error: "送信内容を確認してください。" });
+    if (!validLinkQuery(req, "kgs-link")) return void res.status(400).json({ error: "送信内容を確認してください。" });
     const status = await integration.status(user.id);
     if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
     res.json(status);
@@ -185,7 +203,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
   app.post("/api/kgs-link", async (req, res) => {
     const user = requireLinkedSession(res);
     if (!user || !requireLinkOrigin(req, res)) return;
-    if (Object.keys(req.query).length || !exactKeys(req.body, ["attendanceNumber", "pin"]) ||
+    if (!validLinkQuery(req, "kgs-link") || !exactKeys(req.body, ["attendanceNumber", "pin"]) ||
       typeof req.body.attendanceNumber !== "string" || !/^(?:[1-9]|[1-3][0-9]|40|99)$/.test(req.body.attendanceNumber) ||
       typeof req.body.pin !== "string" || !/^\d{4}$/.test(req.body.pin))
       return void res.status(400).json({ error: "出席番号と数字4桁の本人用暗証番号を入力してください。" });
@@ -209,7 +227,7 @@ export function createApp(databasePath?: string, options: Options = {}) {
   app.post("/api/kgs-link/sync", async (req, res) => {
     const user = requireLinkedSession(res);
     if (!user || !requireLinkOrigin(req, res)) return;
-    if (Object.keys(req.query).length || !exactKeys(req.body, []))
+    if (!validLinkQuery(req, "kgs-link/sync") || !exactKeys(req.body, []))
       return void res.status(400).json({ error: "送信内容を確認してください。" });
     const status = await integration.sync(user.id);
     if (!(await sessionStillCurrent(req, user))) return void res.status(401).json({ error: "ログインし直してからお試しください。" });
